@@ -1,0 +1,3 @@
+[submodule "Modules/MutableDSP"]
+	path = Modules/MutableDSP
+	url = https://github.com/BrianMndz/MutableDSP.git
