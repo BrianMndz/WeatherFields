@@ -43,7 +43,7 @@ Daisy Seed3, alone or combined into one system.
 | Tools/Render | `wf_render_clouds`: CloudsEngine's CLI (`e7738d9`), only its include and name changed. CTest `wf_render_clouds_references` renders all 16 quality × mode combinations and compares them with `clouds_references.sha256`, taken from CloudsEngine's `clouds_cli` built from `e7738d9`: byte-identical in Debug and Release, and equal to CloudsEngine's recorded table. The references hold for macOS arm64 with Apple Clang. |
 | Rigs, hosts | None yet. |
 | Manifests | `wf_add_manifest(<name> TARGET <t>)` writes `build/<preset>/manifests/<name>.txt` (sources, include dirs, defines of the target's link closure). One so far: `clouds` (`wf::clouds`, 13 translation units). |
-| Tools/Bela | `check.sh` reads the manifests (configuring the `dev` preset first) and passes on all of `clouds` with Clang 3.9 and the board's headers; `--self-test` passes. Cache moved to `~/.cache/weatherfields/bela-toolchain`. `deploy.sh` and `profile.sh` are still CloudsEngine's and stop with a message until the Bela host. |
+| Tools/Bela | `check.sh` reads the manifests (configuring the `dev` preset first) and passes on all of `clouds` with Clang 3.9 and the board's headers; `--self-test` passes. Toolchain cache shared by all projects at `~/.cache/bela-toolchain` (CloudsEngine reaches it through a symlink at its old path). `deploy.sh` and `profile.sh` are still CloudsEngine's and stop with a message until the Bela host. |
 
 ## Next actions
 

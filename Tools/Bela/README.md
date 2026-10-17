@@ -16,7 +16,7 @@ up in about two seconds instead of after an upload and an on-board build.
 ## Setup (once)
 
 ```sh
-Tools/Bela/fetch-toolchain.sh      # about 30 s; about 270 MB in ~/.cache/weatherfields/bela-toolchain
+Tools/Bela/fetch-toolchain.sh      # about 30 s; about 270 MB in ~/.cache/bela-toolchain
 Tools/Bela/pull-board-headers.sh   # with the board connected; uses BBB_ADDRESS (default root@192.168.7.2)
 Tools/Bela/check.sh --self-test
 ```
@@ -26,6 +26,17 @@ Requires macOS. On Apple Silicon it also needs Rosetta 2:
 
 Until the board's headers are pulled, `check.sh` can use a local Bela checkout's
 headers instead: `BELA_CHECKOUT=~/path/to/Bela Tools/Bela/check.sh`.
+
+The cache describes the board, not a project, so every project using these
+tools shares it; only `stage/` holds per-project folders. CloudsEngine's tools
+keep theirs at `~/.cache/clouds-engine/bela-toolchain`. Move that cache rather
+than fetching again, because the board's headers in `board/` can only be pulled
+again with the board connected, and leave a link so CloudsEngine still finds it:
+
+```sh
+mv ~/.cache/clouds-engine/bela-toolchain ~/.cache/bela-toolchain
+ln -s ~/.cache/bela-toolchain ~/.cache/clouds-engine/bela-toolchain
+```
 
 ## Use
 
@@ -136,7 +147,7 @@ something this check missed, add a `reject_*.cpp` sample for it.
 
 | Variable | Default | Meaning |
 |---|---|---|
-| `BELA_TOOLCHAIN_DIR` | `~/.cache/weatherfields/bela-toolchain` | where downloads and pulled headers live |
+| `BELA_TOOLCHAIN_DIR` | `~/.cache/bela-toolchain` | where downloads and pulled headers live |
 | `WF_PRESET` | `dev` | CMake preset whose build tree holds the manifests |
 | `BBB_ADDRESS` | `root@192.168.7.2` | the board, as in Bela's scripts (`root@bela.local` also works) |
 | `BBB_BELA_HOME` | `/root/Bela` | Bela's folder on the board |

@@ -5,8 +5,9 @@ REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 TOOLS_DIR="$REPO_ROOT/Tools/Bela"
 
 # Downloaded and pulled files live outside the repository so IDEs do not index
-# them and they cannot be committed by accident.
-TOOLCHAIN_DIR="${BELA_TOOLCHAIN_DIR:-${XDG_CACHE_HOME:-$HOME/.cache}/weatherfields/bela-toolchain}"
+# them and they cannot be committed by accident. They describe the board, not
+# a project, so every project shares one copy; only stage/ is per project.
+TOOLCHAIN_DIR="${BELA_TOOLCHAIN_DIR:-${XDG_CACHE_HOME:-$HOME/.cache}/bela-toolchain}"
 DOWNLOAD_DIR="$TOOLCHAIN_DIR/downloads"
 DEBIAN_SYSROOT="$TOOLCHAIN_DIR/debian9-armhf-sysroot"
 BOARD_DIR="$TOOLCHAIN_DIR/board"
