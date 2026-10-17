@@ -39,14 +39,13 @@ Daisy Seed3, alone or combined into one system.
 | JUCE | `Modules/JUCE` pinned at 9.0.4; configures from `Platforms/Desktop`. No app yet. |
 | Build skeleton | Top-level CMake, presets `dev` and `desktop`, `cmake/WeatherFields.cmake`, CTest. |
 | Core | Header-only `wf::core` with `wf/Dsp.h` (`IsFinite`). Checked as built and under `-O3 -ffast-math`; compiles for the board with Clang 3.9. |
-| Engines, rigs, hosts | None yet. |
+| Engines/Clouds | `wf::clouds`: CloudsEngine's `Engine/` from `e7738d9`. Headers moved to `include/wf/clouds/` (includes `"wf/clouds/..."`); the code is unchanged and keeps namespace `clouds_engine` until the wrapper in step 2. Its five checks pass in Debug and Release; their only other change is `std::byte` → `unsigned char` for the test arenas, as checks compile as C++14. |
+| Rigs, hosts | None yet. |
 | Tools/Bela | Copied from CloudsEngine, not adapted: still reads CloudsEngine paths and targets. |
 
 ## Next actions
 
-1. **Bring Clouds over** (handover section 7):
-   - `Engines/Clouds`: CloudsEngine's `Engine/` (`e7738d9`) as `wf::clouds`,
-     linking `MutableDSP::clouds`; its checks under CTest.
+1. **Finish bringing Clouds over** (handover section 7):
    - `Tools/Render`: the CLI. Acceptance: all 16 quality × mode renders give
      the SHA-256 values of CloudsEngine's `clouds_cli` built from `e7738d9`.
    - CMake-generated per-app source manifests; `Tools/Bela/check.sh` reads
@@ -66,7 +65,7 @@ Daisy Seed3, alone or combined into one system.
 
 ```text
 WeatherFields/
-├── CMakeLists.txt      # WF_BUILD_TESTS, WF_BUILD_DESKTOP; no global C++ standard
+├── CMakeLists.txt      # CMake ≥ 3.25; WF_BUILD_TESTS, WF_BUILD_DESKTOP; no global C++ standard
 ├── CMakePresets.json   # dev (no JUCE), desktop; later daisy
 ├── cmake/              # wf_add_rt_library, wf_add_check; later app manifests, Daisy toolchain
 ├── Modules/            # submodules: JUCE, MutableDSP; later libDaisy
@@ -113,8 +112,11 @@ Contracts:
 ## Conventions
 
 - **Names:** C++ namespace `wf`; CMake targets `wf_<name>` with alias
-  `wf::<name>`; options and macros `WF_` (e.g. `WF_PROFILE`); includes
-  `"wf/..."`.
+  `wf::<name>`; options and macros `WF_` (e.g. `WF_PROFILE`).
+- **Headers:** a component's public headers live in `include/wf/<name>/` and
+  are included as `"wf/<name>/File.h"` (Core: `"wf/File.h"`). Engines share
+  file names such as `Engine.h`; the prefix keeps them apart on one include
+  path, including the flat staging folder of the Bela build.
 - **MI namespaces:** inside `namespace wf { namespace clouds {`, an unqualified
   `clouds::` finds `wf::clouds`. Wrappers write `::clouds::`.
 - **MutableDSP:** one curated fork for all MI ports, one shared `stmlib/`,
@@ -123,6 +125,8 @@ Contracts:
   same upstream commits (`UPSTREAM.md`). Only `main`; WeatherFields pins a
   commit. Commit inside the submodule on `main` (not detached HEAD), push, then
   commit the new pointer in WeatherFields.
+- **Vendored headers are system headers:** `Modules/MutableDSP` is added with
+  `SYSTEM`, so `-Wall -Wextra` reports only our code.
 - **`TEST=1`** is a public definition of `MutableDSP::stmlib`; code built
   outside CMake (the Bela board) must define it too.
 - **`stmlib::Random` is process-global**: renders are reproducible per rig,

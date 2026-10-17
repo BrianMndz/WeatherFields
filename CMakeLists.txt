@@ -1,4 +1,4 @@
-cmake_minimum_required(VERSION 3.24)
+cmake_minimum_required(VERSION 3.25)
 
 project(WeatherFields VERSION 0.1.0 LANGUAGES C CXX)
 
@@ -15,9 +15,12 @@ if(WF_BUILD_TESTS)
 endif()
 
 # EXCLUDE_FROM_ALL: only the MutableDSP modules something links get built.
-add_subdirectory(Modules/MutableDSP EXCLUDE_FROM_ALL)
+# SYSTEM: its headers reach consumers as system headers, so our warning flags
+# do not report upstream code.
+add_subdirectory(Modules/MutableDSP EXCLUDE_FROM_ALL SYSTEM)
 
 add_subdirectory(Core)
+add_subdirectory(Engines)
 
 if(WF_BUILD_DESKTOP)
     add_subdirectory(Platforms/Desktop)
