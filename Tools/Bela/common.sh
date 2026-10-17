@@ -6,7 +6,7 @@ TOOLS_DIR="$REPO_ROOT/Tools/Bela"
 
 # Downloaded and pulled files live outside the repository so IDEs do not index
 # them and they cannot be committed by accident.
-TOOLCHAIN_DIR="${BELA_TOOLCHAIN_DIR:-${XDG_CACHE_HOME:-$HOME/.cache}/clouds-engine/bela-toolchain}"
+TOOLCHAIN_DIR="${BELA_TOOLCHAIN_DIR:-${XDG_CACHE_HOME:-$HOME/.cache}/weatherfields/bela-toolchain}"
 DOWNLOAD_DIR="$TOOLCHAIN_DIR/downloads"
 DEBIAN_SYSROOT="$TOOLCHAIN_DIR/debian9-armhf-sysroot"
 BOARD_DIR="$TOOLCHAIN_DIR/board"
@@ -52,11 +52,20 @@ BELA_C_DEFAULT_STD=gnu11
 BELA_RULE_FLAGS=(-Wall -fmessage-length=0 -U_FORTIFY_SOURCE)
 
 # Project flags: what the Bela build must receive as CPPFLAGS. The last -std
-# wins, overriding Bela's default -std=c++11. The engine targets C++14 so the
-# board's Clang 3.9 can build it (Clang 3.9 spells C++17 "c++1z").
+# wins, overriding Bela's default -std=c++11. Code below Platforms targets
+# C++14 so the board's Clang 3.9 can build it (Clang 3.9 spells C++17
+# "c++1z"). Include directories and defines such as TEST=1 come from the
+# source manifests; PROJECT_DEFINES holds extra ones given on the command line.
 PROJECT_CXX_STD="${BELA_CXX_STD:-c++14}"
-PROJECT_DEFINES=(-DTEST=1)
-PROJECT_INCLUDE_DIRS=(Engine/include Modules/CloudsDSP)
+PROJECT_DEFINES=()
+
+# --- Source manifests -------------------------------------------------------------
+
+# CMake writes one manifest per build that runs outside CMake (wf_add_manifest
+# in cmake/WeatherFields.cmake): lines "source <file>", "include <dir>" and
+# "define <macro>". The manifests of this preset's build tree are used.
+WF_PRESET="${WF_PRESET:-dev}"
+MANIFEST_DIR="$REPO_ROOT/build/$WF_PRESET/manifests"
 
 # --- Helpers --------------------------------------------------------------------
 
@@ -81,19 +90,32 @@ clang39_prefix() {
     if [ "$(uname -m)" = arm64 ]; then echo "arch -x86_64"; fi
 }
 
-# Prints the sources listed in one add_library() call of a CMakeLists.txt,
-# so the Bela check uses the same canonical lists as the desktop build.
-cmake_target_sources() {
-    local cmake_file=$1 target=$2 base_dir=$3
-    sed -n "/add_library($target /,/)/p" "$cmake_file" \
-        | grep -E '^[[:space:]]*[^#()[:space:]]+\.(cpp|cc|c)[[:space:]]*$' \
-        | sed -E "s|^[[:space:]]*|$base_dir/|; s|[[:space:]]*$||"
+# Configures the preset's build tree, which rewrites the manifests from the
+# CMake targets, so they never lag behind a CMakeLists.txt change.
+refresh_manifests() {
+    command -v cmake >/dev/null || die "cmake is not on PATH"
+    (cd "$REPO_ROOT" && cmake --preset "$WF_PRESET" >/dev/null) \
+        || die "configuring the CMake preset '$WF_PRESET' failed"
 }
 
-# Prints every translation unit the Bela build must compile: everything Bela's
-# Makefile finds in the app folder plus the Engine and CloudsDSP library sources.
-bela_sources() {
-    find "$REPO_ROOT/Apps/Bela" -type f \( -name '*.cpp' -o -name '*.c' \) | sort
-    cmake_target_sources "$REPO_ROOT/Engine/CMakeLists.txt" clouds_engine_core "$REPO_ROOT/Engine"
-    cmake_target_sources "$REPO_ROOT/Modules/CloudsDSP/CMakeLists.txt" clouds_dsp "$REPO_ROOT/Modules/CloudsDSP"
+manifest_file() {
+    echo "$MANIFEST_DIR/$1.txt"
+}
+
+# Prints the name of every manifest, one per line.
+manifest_names() {
+    local file
+    for file in "$MANIFEST_DIR"/*.txt; do
+        [ -f "$file" ] && basename "$file" .txt
+    done
+    return 0
+}
+
+require_manifest() {
+    [ -f "$(manifest_file "$1")" ] || die "no manifest '$1' in $MANIFEST_DIR (known: $(manifest_names | tr '\n' ' '))"
+}
+
+# Prints the values of kind $2 (source, include or define) in manifest $1.
+manifest_values() {
+    sed -n "s/^$2 \(..*\)$/\1/p" "$(manifest_file "$1")"
 }

@@ -6,6 +6,11 @@
 set -euo pipefail
 source "$(dirname "$0")/common.sh"
 
+# Still CloudsEngine's script: it stages Apps/Bela and reads source lists that
+# no longer exist. It is adapted with the Bela host (PROJECT_GUIDE.md, next
+# actions), to stage a Bela app from its manifest.
+die "$(basename "$0") is not adapted to WeatherFields yet; it comes with the Bela host"
+
 PROJECT_NAME="${BELA_PROJECT_NAME:-CloudsEngineProfile}"
 BOARD_PROJECT_DIR="$BBB_BELA_HOME/projects/$PROJECT_NAME"
 

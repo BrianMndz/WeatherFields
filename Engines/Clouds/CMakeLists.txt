@@ -10,6 +10,9 @@ wf_add_rt_library(clouds
         MutableDSP::clouds
 )
 
+# What a Bela or Daisy build compiles for Clouds (Tools/Bela/check.sh).
+wf_add_manifest(clouds TARGET wf::clouds)
+
 wf_add_check(wf_clouds_init_check
     SOURCES tests/InitializationCheck.cpp
     LINK wf::clouds

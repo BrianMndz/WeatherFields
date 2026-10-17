@@ -42,23 +42,25 @@ Daisy Seed3, alone or combined into one system.
 | Engines/Clouds | `wf::clouds`: CloudsEngine's `Engine/` from `e7738d9`. Headers moved to `include/wf/clouds/` (includes `"wf/clouds/..."`); the code is unchanged and keeps namespace `clouds_engine` until the wrapper in step 2. Its five checks pass in Debug and Release; their only other change is `std::byte` → `unsigned char` for the test arenas, as checks compile as C++14. |
 | Tools/Render | `wf_render_clouds`: CloudsEngine's CLI (`e7738d9`), only its include and name changed. CTest `wf_render_clouds_references` renders all 16 quality × mode combinations and compares them with `clouds_references.sha256`, taken from CloudsEngine's `clouds_cli` built from `e7738d9`: byte-identical in Debug and Release, and equal to CloudsEngine's recorded table. The references hold for macOS arm64 with Apple Clang. |
 | Rigs, hosts | None yet. |
-| Tools/Bela | Copied from CloudsEngine, not adapted: still reads CloudsEngine paths and targets. |
+| Manifests | `wf_add_manifest(<name> TARGET <t>)` writes `build/<preset>/manifests/<name>.txt` (sources, include dirs, defines of the target's link closure). One so far: `clouds` (`wf::clouds`, 13 translation units). |
+| Tools/Bela | `check.sh` reads the manifests (configuring the `dev` preset first) and passes on all of `clouds` with Clang 3.9 and the board's headers; `--self-test` passes. Cache moved to `~/.cache/weatherfields/bela-toolchain`. `deploy.sh` and `profile.sh` are still CloudsEngine's and stop with a message until the Bela host. |
 
 ## Next actions
 
-1. **Finish bringing Clouds over** (handover section 7): CMake-generated
-   per-app source manifests; `Tools/Bela/check.sh` reads them and passes on
-   the copied sources.
-2. **Core types and the Clouds wrapper**: `Params.h`, `Events.h` (SPSC queue
+1. **Core types and the Clouds wrapper**: `Params.h`, `Events.h` (SPSC queue
    plus check), the `wf::Engine` and `wf::Rig` interfaces with host-provided
    memory, `SoloRig<E>`, and the Clouds `wf::Engine` with its ParamTable
    (handover section 10, step 2).
-3. **Desktop host, first playable**: a JUCE app with a rig menu, audio in to
+2. **Desktop host, first playable**: a JUCE app with a rig menu, audio in to
    out, and a generic panel built from `ParamSpec`. Listen with the PO-33.
-4. **MIDI**: log the ROLI messages, write a hard-coded `MidiMap`, play Clouds
+3. **MIDI**: log the ROLI messages, write a hard-coded `MidiMap`, play Clouds
    from the blocks. Milestone 1 on desktop.
-5. **Bela host**: port the tools, the generic browser panel and USB MIDI;
-   profile, then listen. Milestone 1 complete.
+4. **Bela host**: the host library and a first app with its manifest;
+   `deploy.sh` stages the app from that manifest (top-level units, `.cc`
+   wrappers, headers by include path), `profile.sh` and `Profiler.h` drive a
+   rig, `CLOUDS_PROFILE` becomes `WF_PROFILE`, and the board clock is set in
+   `deploy.sh`. Then the generic browser panel and USB MIDI; profile, then
+   listen. Milestone 1 complete.
 
 ## Architecture
 
@@ -66,7 +68,7 @@ Daisy Seed3, alone or combined into one system.
 WeatherFields/
 ├── CMakeLists.txt      # CMake ≥ 3.25; WF_BUILD_TESTS, WF_BUILD_DESKTOP; no global C++ standard
 ├── CMakePresets.json   # dev (no JUCE), desktop; later daisy
-├── cmake/              # wf_add_rt_library, wf_add_check; later app manifests, Daisy toolchain
+├── cmake/              # wf_add_rt_library, wf_add_check, wf_add_manifest; later Daisy toolchain
 ├── Modules/            # submodules: JUCE, MutableDSP; later libDaisy
 ├── Core/               # wf::core
 ├── Engines/<Name>/     # wf::<name>: CMakeLists, include/wf/<name>/, src/, tests/
@@ -137,6 +139,14 @@ Contracts:
 ```sh
 cmake --preset dev && cmake --build --preset dev && ctest --preset dev
 cmake --preset desktop && cmake --build --preset desktop     # adds JUCE
+```
+
+Bela compile check (needs `Tools/Bela/fetch-toolchain.sh` once, and the
+board's headers from `pull-board-headers.sh`):
+
+```sh
+Tools/Bela/check.sh                   # every manifest; configures the dev preset first
+Tools/Bela/check.sh --self-test
 ```
 
 Build trees go to `build/<preset>`. `ctest` includes the Clouds render

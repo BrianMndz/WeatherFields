@@ -12,29 +12,44 @@ usage() {
 Usage: Tools/Bela/check.sh [options] [file...]
 
 Syntax-checks sources the way the Bela board's compiler would. With no files,
-checks everything in Apps/Bela plus the Engine and CloudsDSP library sources.
+checks every source of every manifest CMake writes (wf_add_manifest), each with
+its manifest's include directories and defines. Files given explicitly are
+checked with the flags of the chosen manifests.
 
 Options:
+  --manifest NAME  use this manifest (repeatable; default: all of them)
+  --no-configure   use the manifests as they are, without configuring the
+                   '$WF_PRESET' CMake preset first
   --std=STD      C++ standard for project code (default: $PROJECT_CXX_STD; or set BELA_CXX_STD)
   --host-clang   use the Mac's clang instead of Clang $CLANG_VERSION: still catches missing
                  library features, but accepts language features the board rejects
   --self-test    check that the toolchain rejects known board-incompatible code
-  -DNAME[=VALUE] define a macro for project code, e.g. -DCLOUDS_PROFILE=1
+  -DNAME[=VALUE] define a macro for project code, e.g. -DWF_PROFILE=1
   -v, --verbose  also print warnings for files that pass
   -h, --help     show this help
 
 Environment:
   BELA_CHECKOUT  local Bela checkout whose headers to use until the board's are
                  pulled with Tools/Bela/pull-board-headers.sh
+  WF_PRESET      CMake preset whose build tree holds the manifests (default: dev)
 EOF
 }
 
 use_host_clang=0
 self_test=0
 verbose=0
+configure=1
+manifests=()
 files=()
 while [ $# -gt 0 ]; do
     case $1 in
+        --manifest)
+            [ $# -gt 1 ] || die "--manifest needs a name"
+            manifests+=("$2")
+            shift
+            ;;
+        --manifest=*) manifests+=("${1#--manifest=}") ;;
+        --no-configure) configure=0 ;;
         --std=*) PROJECT_CXX_STD=${1#--std=} ;;
         --host-clang) use_host_clang=1 ;;
         --self-test) self_test=1 ;;
@@ -109,16 +124,14 @@ cxx_stdlib_flags=(
     -isystem "$sysroot/usr/include/arm-linux-gnueabihf/c++/$LIBSTDCXX_MAJOR"
     -isystem "$libstdcxx/backward"
 )
-bela_includes=(-I"$REPO_ROOT/Apps/Bela" -I"$bela_root/include/legacy" -I"$bela_root/include" -I"$bela_root")
-project_flags=(-std="$PROJECT_CXX_STD" "${PROJECT_DEFINES[@]}")
-for dir in "${PROJECT_INCLUDE_DIRS[@]}"; do
-    project_flags+=(-I"$REPO_ROOT/$dir")
-done
+bela_includes=(-I"$bela_root/include/legacy" -I"$bela_root/include" -I"$bela_root")
 
+# Base flags; compile() appends the project's flags, which come last as
+# CPPFLAGS do on the board.
 CXX_FLAGS=(
     "${target_flags[@]}" "${cxx_stdlib_flags[@]}" "${bela_includes[@]}"
     ${xenomai_flags[@]+"${xenomai_flags[@]}"} "${BELA_COMMON_FLAGS[@]}" -std="$BELA_CXX_DEFAULT_STD"
-    "${BELA_RULE_FLAGS[@]}" "${project_flags[@]}"
+    "${BELA_RULE_FLAGS[@]}"
 )
 C_FLAGS=(
     "${target_flags[@]}" "${bela_includes[@]}"
@@ -126,13 +139,33 @@ C_FLAGS=(
     "${BELA_RULE_FLAGS[@]}"
 )
 
+# Project flags of the manifests named in "$@": their defines and include
+# directories, then the command line's defines. C files get them without the
+# C++ standard.
+project_c_flags=()
+project_cxx_flags=()
+set_project_flags() {
+    local name value
+    project_c_flags=()
+    for name in "$@"; do
+        while IFS= read -r value; do
+            project_c_flags+=(-D"$value")
+        done < <(manifest_values "$name" define)
+        while IFS= read -r value; do
+            project_c_flags+=(-I"$value")
+        done < <(manifest_values "$name" include)
+    done
+    project_c_flags+=(${PROJECT_DEFINES[@]+"${PROJECT_DEFINES[@]}"})
+    project_cxx_flags=(-std="$PROJECT_CXX_STD" ${project_c_flags[@]+"${project_c_flags[@]}"})
+}
+
 # Runs the matching compiler on file $1 with the extra flags that follow it.
 compile() {
     local file=$1
     shift
     case $file in
-        *.c) "${CC[@]}" "${C_FLAGS[@]}" "$@" -x c "$file" ;;
-        *)   "${CXX[@]}" "${CXX_FLAGS[@]}" "$@" -x c++ "$file" ;;
+        *.c) "${CC[@]}" "${C_FLAGS[@]}" ${project_c_flags[@]+"${project_c_flags[@]}"} "$@" -x c "$file" ;;
+        *)   "${CXX[@]}" "${CXX_FLAGS[@]}" "${project_cxx_flags[@]}" "$@" -x c++ "$file" ;;
     esac
 }
 
@@ -147,6 +180,9 @@ print_header() {
     echo "  Bela      $bela_desc"
     echo "  Xenomai   $xenomai_desc"
     echo "  standard  -std=$PROJECT_CXX_STD"
+    if [ ${#manifests[@]} -gt 0 ]; then
+        echo "  manifests ${manifests[*]} (${MANIFEST_DIR#$REPO_ROOT/})"
+    fi
     echo
 }
 
@@ -196,53 +232,73 @@ run_self_test() {
 }
 
 if [ $self_test -eq 1 ]; then
+    project_cxx_flags=(-std="$PROJECT_CXX_STD")
     run_self_test
     exit 0
 fi
 
 # --- Project check ------------------------------------------------------------------
 
-if [ ${#files[@]} -eq 0 ]; then
-    while IFS= read -r file; do
-        files+=("$file")
-    done < <(bela_sources)
-    [ ${#files[@]} -gt 0 ] || die "found no sources to check"
+[ $configure -eq 0 ] || refresh_manifests
+if [ ${#manifests[@]} -eq 0 ]; then
+    while IFS= read -r name; do
+        manifests+=("$name")
+    done < <(manifest_names)
+    [ ${#manifests[@]} -gt 0 ] || die "no manifests in $MANIFEST_DIR"
 fi
+for name in "${manifests[@]}"; do
+    require_manifest "$name"
+done
 
 print_header "Bela compile check"
 
-skipped=$(find "$REPO_ROOT/Apps/Bela" -type f \( -name '*.cc' -o -name '*.cxx' \))
-if [ -n "$skipped" ]; then
-    echo "warning: Bela's Makefile compiles only .cpp, .c and .S files, so it will skip:"
-    echo "$skipped" | sed "s|^$REPO_ROOT/|  |"
-    echo
+checked=0
+failed=0
+check_files() {
+    local file out warnings
+    for file in "$@"; do
+        [ -f "$file" ] || die "no such file: $file"
+        checked=$((checked + 1))
+        if out=$(compile "$file" -fsyntax-only 2>&1); then
+            warnings=$(grep -c 'warning:' <<<"$out" || true)
+            if [ "$warnings" -gt 0 ]; then
+                echo "OK   $(relative "$file") ($warnings warnings)"
+            else
+                echo "OK   $(relative "$file")"
+            fi
+            if [ $verbose -eq 1 ] && [ -n "$out" ]; then
+                echo "$out"
+            fi
+        else
+            echo "FAIL $(relative "$file")"
+            echo "$out"
+            failed=$((failed + 1))
+        fi
+    done
+}
+
+if [ ${#files[@]} -gt 0 ]; then
+    set_project_flags "${manifests[@]}"
+    check_files "${files[@]}"
+else
+    for name in "${manifests[@]}"; do
+        sources=()
+        while IFS= read -r file; do
+            sources+=("$file")
+        done < <(manifest_values "$name" source)
+        [ ${#sources[@]} -gt 0 ] || die "manifest '$name' lists no sources"
+        echo "Manifest $name:"
+        set_project_flags "$name"
+        check_files "${sources[@]}"
+        echo
+    done
 fi
 
-failed=0
-for file in "${files[@]}"; do
-    [ -f "$file" ] || die "no such file: $file"
-    if out=$(compile "$file" -fsyntax-only 2>&1); then
-        warnings=$(grep -c 'warning:' <<<"$out" || true)
-        if [ "$warnings" -gt 0 ]; then
-            echo "OK   $(relative "$file") ($warnings warnings)"
-        else
-            echo "OK   $(relative "$file")"
-        fi
-        if [ $verbose -eq 1 ] && [ -n "$out" ]; then
-            echo "$out"
-        fi
-    else
-        echo "FAIL $(relative "$file")"
-        echo "$out"
-        failed=$((failed + 1))
-    fi
-done
-
-if [ ${#files[@]} -eq 1 ]; then noun=file; else noun=files; fi
-echo
+if [ $checked -eq 1 ]; then noun=file; else noun=files; fi
+[ ${#files[@]} -eq 0 ] || echo
 if [ $failed -eq 0 ]; then
-    echo "${#files[@]} $noun checked; all would compile on the board."
+    echo "$checked $noun checked; all would compile on the board."
 else
-    echo "${#files[@]} $noun checked; $failed would fail to compile on the board."
+    echo "$checked $noun checked; $failed would fail to compile on the board."
     exit 1
 fi

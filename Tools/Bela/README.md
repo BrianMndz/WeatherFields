@@ -3,6 +3,10 @@
 Checks on the Mac whether the Bela build will compile, then builds and runs it
 on the board.
 
+> `deploy.sh` and `profile.sh` are still CloudsEngine's and stop with a message:
+> they are adapted with the Bela host, to stage a Bela app from its manifest.
+> Their sections below describe CloudsEngine's behaviour until then.
+
 Nothing here builds code for the board on the Mac: the board still compiles,
 links and runs the project. `check.sh` runs the board's compiler version against
 the board's headers with Bela's flags in syntax-only mode, so compile errors show
@@ -12,7 +16,7 @@ up in about two seconds instead of after an upload and an on-board build.
 ## Setup (once)
 
 ```sh
-Tools/Bela/fetch-toolchain.sh      # about 30 s; about 270 MB in ~/.cache/clouds-engine/bela-toolchain
+Tools/Bela/fetch-toolchain.sh      # about 30 s; about 270 MB in ~/.cache/weatherfields/bela-toolchain
 Tools/Bela/pull-board-headers.sh   # with the board connected; uses BBB_ADDRESS (default root@192.168.7.2)
 Tools/Bela/check.sh --self-test
 ```
@@ -26,15 +30,19 @@ headers instead: `BELA_CHECKOUT=~/path/to/Bela Tools/Bela/check.sh`.
 ## Use
 
 ```sh
-Tools/Bela/check.sh                         # every file the Bela build compiles
-Tools/Bela/check.sh Apps/Bela/Render.cpp    # just these files
-Tools/Bela/check.sh --std=c++14             # try another language standard
-Tools/Bela/check.sh -DCLOUDS_PROFILE=1      # check with a macro defined
+Tools/Bela/check.sh                                   # every source of every manifest
+Tools/Bela/check.sh --manifest clouds                 # one manifest
+Tools/Bela/check.sh --manifest clouds path/to/file.cpp  # just these files, with its flags
+Tools/Bela/check.sh --std=c++14                       # try another language standard
+Tools/Bela/check.sh -DWF_PROFILE=1                    # check with a macro defined
 ```
 
-The default file list is everything Bela's Makefile finds in `Apps/Bela`, plus
-the source lists of the `clouds_engine_core` and `clouds_dsp` CMake targets, so
-it follows the desktop build automatically.
+The file lists come from CMake. `wf_add_manifest(<name> TARGET <target>)`
+(`cmake/WeatherFields.cmake`) writes `build/<preset>/manifests/<name>.txt` with
+every source, include directory and define needed to build the target and
+everything it links. `check.sh` first configures the `dev` preset (`WF_PRESET`
+picks another; `--no-configure` skips it), so the lists always follow the
+CMake targets, then checks each manifest's sources with that manifest's flags.
 
 ## Build and run on the board
 
@@ -115,8 +123,8 @@ something this check missed, add a `reject_*.cpp` sample for it.
 
 ## Files and settings
 
-- `common.sh`: pinned versions and checksums, Bela's flags, the source list.
-  Shared by the other scripts.
+- `common.sh`: pinned versions and checksums, Bela's flags, reading the
+  manifests. Shared by the other scripts.
 - `fetch-toolchain.sh`: downloads, verifies and unpacks Clang 3.9 and the
   Debian 9 headers.
 - `pull-board-headers.sh`: copies the board's headers, Xenomai flags and Bela
@@ -128,7 +136,8 @@ something this check missed, add a `reject_*.cpp` sample for it.
 
 | Variable | Default | Meaning |
 |---|---|---|
-| `BELA_TOOLCHAIN_DIR` | `~/.cache/clouds-engine/bela-toolchain` | where downloads and pulled headers live |
+| `BELA_TOOLCHAIN_DIR` | `~/.cache/weatherfields/bela-toolchain` | where downloads and pulled headers live |
+| `WF_PRESET` | `dev` | CMake preset whose build tree holds the manifests |
 | `BBB_ADDRESS` | `root@192.168.7.2` | the board, as in Bela's scripts (`root@bela.local` also works) |
 | `BBB_BELA_HOME` | `/root/Bela` | Bela's folder on the board |
 | `BELA_CHECKOUT` | unset | local Bela checkout to use before the board's headers are pulled |
