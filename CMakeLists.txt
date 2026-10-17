@@ -21,6 +21,7 @@ add_subdirectory(Modules/MutableDSP EXCLUDE_FROM_ALL SYSTEM)
 
 add_subdirectory(Core)
 add_subdirectory(Engines)
+add_subdirectory(Tools)
 
 if(WF_BUILD_DESKTOP)
     add_subdirectory(Platforms/Desktop)

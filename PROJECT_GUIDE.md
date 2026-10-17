@@ -40,16 +40,15 @@ Daisy Seed3, alone or combined into one system.
 | Build skeleton | Top-level CMake, presets `dev` and `desktop`, `cmake/WeatherFields.cmake`, CTest. |
 | Core | Header-only `wf::core` with `wf/Dsp.h` (`IsFinite`). Checked as built and under `-O3 -ffast-math`; compiles for the board with Clang 3.9. |
 | Engines/Clouds | `wf::clouds`: CloudsEngine's `Engine/` from `e7738d9`. Headers moved to `include/wf/clouds/` (includes `"wf/clouds/..."`); the code is unchanged and keeps namespace `clouds_engine` until the wrapper in step 2. Its five checks pass in Debug and Release; their only other change is `std::byte` → `unsigned char` for the test arenas, as checks compile as C++14. |
+| Tools/Render | `wf_render_clouds`: CloudsEngine's CLI (`e7738d9`), only its include and name changed. CTest `wf_render_clouds_references` renders all 16 quality × mode combinations and compares them with `clouds_references.sha256`, taken from CloudsEngine's `clouds_cli` built from `e7738d9`: byte-identical in Debug and Release, and equal to CloudsEngine's recorded table. The references hold for macOS arm64 with Apple Clang. |
 | Rigs, hosts | None yet. |
 | Tools/Bela | Copied from CloudsEngine, not adapted: still reads CloudsEngine paths and targets. |
 
 ## Next actions
 
-1. **Finish bringing Clouds over** (handover section 7):
-   - `Tools/Render`: the CLI. Acceptance: all 16 quality × mode renders give
-     the SHA-256 values of CloudsEngine's `clouds_cli` built from `e7738d9`.
-   - CMake-generated per-app source manifests; `Tools/Bela/check.sh` reads
-     them and passes on the copied sources.
+1. **Finish bringing Clouds over** (handover section 7): CMake-generated
+   per-app source manifests; `Tools/Bela/check.sh` reads them and passes on
+   the copied sources.
 2. **Core types and the Clouds wrapper**: `Params.h`, `Events.h` (SPSC queue
    plus check), the `wf::Engine` and `wf::Rig` interfaces with host-provided
    memory, `SoloRig<E>`, and the Clouds `wf::Engine` with its ParamTable
@@ -140,7 +139,9 @@ cmake --preset dev && cmake --build --preset dev && ctest --preset dev
 cmake --preset desktop && cmake --build --preset desktop     # adds JUCE
 ```
 
-Build trees go to `build/<preset>`. Platform notes and the Bela board's
+Build trees go to `build/<preset>`. `ctest` includes the Clouds render
+references; a change that alters Clouds' output must fail it, or come with new
+references and a reason. Platform notes and the Bela board's
 quirks are in the handover, section 8.
 
 ## Decisions
