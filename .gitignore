@@ -1,0 +1,11 @@
+# Build trees (CMakePresets.json builds into build/<preset>)
+/build/
+/cmake-build-*/
+
+# IDEs
+.idea/
+.vscode/
+.cache/
+
+# macOS
+.DS_Store

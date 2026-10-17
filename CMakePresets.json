@@ -1,0 +1,38 @@
+{
+    "version": 5,
+    "configurePresets": [
+        {
+            "name": "dev",
+            "displayName": "Dev: Core, engines and checks (no JUCE)",
+            "generator": "Ninja",
+            "binaryDir": "${sourceDir}/build/${presetName}",
+            "cacheVariables": {
+                "CMAKE_BUILD_TYPE": "Debug",
+                "CMAKE_EXPORT_COMPILE_COMMANDS": "ON",
+                "WF_BUILD_TESTS": "ON",
+                "WF_BUILD_DESKTOP": "OFF",
+                "WF_STRICT_RT": "ON"
+            }
+        },
+        {
+            "name": "desktop",
+            "displayName": "Desktop: dev plus the JUCE host",
+            "inherits": "dev",
+            "cacheVariables": {
+                "WF_BUILD_DESKTOP": "ON",
+                "WF_STRICT_RT": "OFF"
+            }
+        }
+    ],
+    "buildPresets": [
+        { "name": "dev", "configurePreset": "dev" },
+        { "name": "desktop", "configurePreset": "desktop" }
+    ],
+    "testPresets": [
+        {
+            "name": "dev",
+            "configurePreset": "dev",
+            "output": { "outputOnFailure": true }
+        }
+    ]
+}
