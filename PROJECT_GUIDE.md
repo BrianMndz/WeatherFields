@@ -38,7 +38,7 @@ Daisy Seed3, alone or combined into one system.
 | MutableDSP | `Modules/MutableDSP`, `main` at `24b201f`: Clouds closure imported unchanged from Eurorack `f4cfa76` (stmlib `e3bd7c9`), CloudsDSP patches applied, `MutableDSP::stmlib` and `MutableDSP::clouds` targets. Object code byte-identical to CloudsDSP's. |
 | JUCE | `Modules/JUCE` pinned at 9.0.4; configures from `Platforms/Desktop`. No app yet. |
 | Build skeleton | Top-level CMake, presets `dev` and `desktop`, `cmake/WeatherFields.cmake`, CTest. |
-| Core | Header-only `wf::core` with `wf/Dsp.h` (`IsFinite`). Checked as built and under `-O3 -ffast-math`; compiles for the board with Clang 3.9. |
+| Core | Header-only `wf::core`, all compiling for the board with Clang 3.9: `wf/Dsp.h` (`IsFinite`, checked as built and under `-O3 -ffast-math`); `wf/Params.h` (`ParamId`, `ParamKind`, `ParamSpec`, `ParamTable`, `ConstrainValue`, which rejects non-finite values, and `IsValidParamTable`); `wf/Events.h` (8-byte POD `ControlEvent`); `wf/SpscQueue.h` (lock-free, power-of-two capacity, trivially copyable items; its own header because the recorder will use it too). The queue's two-thread check also runs clean under ThreadSanitizer, which flags a copy with relaxed ordering. |
 | Engines/Clouds | `wf::clouds`: CloudsEngine's `Engine/` from `e7738d9`. Headers moved to `include/wf/clouds/` (includes `"wf/clouds/..."`); the code is unchanged and keeps namespace `clouds_engine` until the wrapper in step 2. Its five checks pass in Debug and Release; their only other change is `std::byte` → `unsigned char` for the test arenas, as checks compile as C++14. |
 | Tools/Render | `wf_render_clouds`: CloudsEngine's CLI (`e7738d9`), only its include and name changed. CTest `wf_render_clouds_references` renders all 16 quality × mode combinations and compares them with `clouds_references.sha256`, taken from CloudsEngine's `clouds_cli` built from `e7738d9`: byte-identical in Debug and Release, and equal to CloudsEngine's recorded table. The references hold for macOS arm64 with Apple Clang. |
 | Rigs, hosts | None yet. |
@@ -47,10 +47,17 @@ Daisy Seed3, alone or combined into one system.
 
 ## Next actions
 
-1. **Core types and the Clouds wrapper**: `Params.h`, `Events.h` (SPSC queue
-   plus check), the `wf::Engine` and `wf::Rig` interfaces with host-provided
-   memory, `SoloRig<E>`, and the Clouds `wf::Engine` with its ParamTable
-   (handover section 10, step 2).
+1. **Engine and rig interfaces, then the Clouds wrapper** (handover section
+   10, step 2):
+   - 2b: `wf/Engine.h` and `wf/Rig.h` with host-provided memory (proposed:
+     one arena per engine), the rig validating and clamping events by
+     `ParamSpec` and routing them by slot, `SoloRig<E>`, and a check with a
+     trivial gain engine.
+   - 2c: the copied code moves to namespace `wf::clouds`; the `wf::Engine`
+     implementation (proposed name `wf::clouds::Clouds`) with its ParamTable:
+     the nine controls, IN GAIN, freeze, trigger, quality and mode, pitch ±24
+     st. Checks: events reach the snapshot, clamping at the rig, and if it
+     holds, a 32 kHz render byte-identical to `wf_render_clouds`.
 2. **Desktop host, first playable**: a JUCE app with a rig menu, audio in to
    out, and a generic panel built from `ParamSpec`. Listen with the PO-33.
 3. **MIDI**: log the ROLI messages, write a hard-coded `MidiMap`, play Clouds

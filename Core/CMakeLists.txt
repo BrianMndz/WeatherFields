@@ -18,3 +18,14 @@ if(TARGET wf_core_dsp_fast_math_check)
         "$<${WF_GNU_LIKE}:-O3;-ffast-math>"
     )
 endif()
+
+wf_add_check(wf_core_params_check
+    SOURCES tests/ParamsCheck.cpp
+    LINK wf::core
+)
+
+find_package(Threads REQUIRED)
+wf_add_check(wf_core_spsc_queue_check
+    SOURCES tests/SpscQueueCheck.cpp
+    LINK wf::core Threads::Threads
+)
