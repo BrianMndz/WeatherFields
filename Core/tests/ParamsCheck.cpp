@@ -22,12 +22,15 @@ float FromBits(std::uint32_t bits) {
     return value;
 }
 
+constexpr const char* kModeLabels[] = {"Granular", "Stretch", "Looping Delay", "Spectral"};
+constexpr const char* kShortLabels[] = {"One", nullptr, "Three"};
+
 constexpr wf::ParamSpec kSpecs[] = {
-    {0, "Position", wf::ParamKind::Continuous, 0.0f, 1.0f, 0.5f, ""},
-    {1, "Pitch", wf::ParamKind::Continuous, -24.0f, 24.0f, 0.0f, "st"},
-    {7, "Mode", wf::ParamKind::Choice, 0.0f, 3.0f, 0.0f, ""},
-    {3, "Freeze", wf::ParamKind::Toggle, 0.0f, 1.0f, 0.0f, ""},
-    {4, "Trig", wf::ParamKind::Trigger, 0.0f, 1.0f, 0.0f, ""},
+    {0, "Position", wf::ParamKind::Continuous, 0.0f, 1.0f, 0.5f, "", nullptr},
+    {1, "Pitch", wf::ParamKind::Continuous, -24.0f, 24.0f, 0.0f, "st", nullptr},
+    {7, "Mode", wf::ParamKind::Choice, 0.0f, 3.0f, 0.0f, "", kModeLabels},
+    {3, "Freeze", wf::ParamKind::Toggle, 0.0f, 1.0f, 0.0f, "", nullptr},
+    {4, "Trig", wf::ParamKind::Trigger, 0.0f, 1.0f, 0.0f, "", nullptr},
 };
 constexpr wf::ParamTable kTable = wf::MakeParamTable(kSpecs);
 
@@ -97,17 +100,20 @@ void CheckValidity() {
         const char* description;
     };
     const Case invalid[] = {
-        {{9, "Def", wf::ParamKind::Continuous, 0.0f, 1.0f, 2.0f, ""}, "def above max"},
-        {{9, "Range", wf::ParamKind::Continuous, 1.0f, 0.0f, 0.5f, ""}, "min above max"},
-        {{9, nullptr, wf::ParamKind::Continuous, 0.0f, 1.0f, 0.5f, ""}, "missing name"},
-        {{9, "Unit", wf::ParamKind::Continuous, 0.0f, 1.0f, 0.5f, nullptr}, "missing unit"},
-        {{9, "Choice", wf::ParamKind::Choice, 1.0f, 3.0f, 1.0f, ""}, "Choice not starting at 0"},
-        {{9, "Choice", wf::ParamKind::Choice, 0.0f, 2.5f, 0.0f, ""}, "Choice with a fractional max"},
-        {{9, "Choice", wf::ParamKind::Choice, 0.0f, 3.0f, 0.5f, ""}, "Choice with a fractional def"},
-        {{9, "Toggle", wf::ParamKind::Toggle, 0.0f, 2.0f, 0.0f, ""}, "Toggle not in 0..1"},
-        {{9, "Toggle", wf::ParamKind::Toggle, 0.0f, 1.0f, 0.5f, ""}, "Toggle def not 0 or 1"},
-        {{9, "NaN", wf::ParamKind::Continuous, 0.0f, FromBits(0x7fc00000u), 0.0f, ""}, "NaN max"},
-        {{0, "Duplicate", wf::ParamKind::Continuous, 0.0f, 1.0f, 0.5f, ""}, "duplicate ID"},
+        {{9, "Def", wf::ParamKind::Continuous, 0.0f, 1.0f, 2.0f, "", nullptr}, "def above max"},
+        {{9, "Range", wf::ParamKind::Continuous, 1.0f, 0.0f, 0.5f, "", nullptr}, "min above max"},
+        {{9, nullptr, wf::ParamKind::Continuous, 0.0f, 1.0f, 0.5f, "", nullptr}, "missing name"},
+        {{9, "Unit", wf::ParamKind::Continuous, 0.0f, 1.0f, 0.5f, nullptr, nullptr}, "missing unit"},
+        {{9, "Choice", wf::ParamKind::Choice, 1.0f, 3.0f, 1.0f, "", kModeLabels}, "Choice not starting at 0"},
+        {{9, "Choice", wf::ParamKind::Choice, 0.0f, 2.5f, 0.0f, "", kModeLabels}, "Choice with a fractional max"},
+        {{9, "Choice", wf::ParamKind::Choice, 0.0f, 3.0f, 0.5f, "", kModeLabels}, "Choice with a fractional def"},
+        {{9, "Toggle", wf::ParamKind::Toggle, 0.0f, 2.0f, 0.0f, "", nullptr}, "Toggle not in 0..1"},
+        {{9, "Toggle", wf::ParamKind::Toggle, 0.0f, 1.0f, 0.5f, "", nullptr}, "Toggle def not 0 or 1"},
+        {{9, "NaN", wf::ParamKind::Continuous, 0.0f, FromBits(0x7fc00000u), 0.0f, "", nullptr}, "NaN max"},
+        {{9, "Choice", wf::ParamKind::Choice, 0.0f, 3.0f, 0.0f, "", nullptr}, "Choice without labels"},
+        {{9, "Choice", wf::ParamKind::Choice, 0.0f, 2.0f, 0.0f, "", kShortLabels}, "Choice missing a label"},
+        {{9, "Labels", wf::ParamKind::Toggle, 0.0f, 1.0f, 0.0f, "", kModeLabels}, "labels on a Toggle"},
+        {{0, "Duplicate", wf::ParamKind::Continuous, 0.0f, 1.0f, 0.5f, "", nullptr}, "duplicate ID"},
     };
     for (const Case& c : invalid) {
         // The example table plus the faulty spec, so the duplicate case

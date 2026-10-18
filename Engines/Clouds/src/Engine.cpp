@@ -10,22 +10,26 @@ using wf::ParamKind;
 using wf::ParamSpec;
 using wf::clouds::Engine;
 
+// In the order of Quality and PlaybackMode.
+const char* const kQualityLabels[] = {"Stereo 16-bit", "Mono 16-bit", "Stereo mu-law", "Mono mu-law"};
+const char* const kModeLabels[] = {"Granular", "Stretch", "Looping Delay", "Spectral"};
+
 const ParamSpec kSpecs[] = {
-    {Engine::kPosition, "Position", ParamKind::Continuous, 0.0f, 1.0f, 0.5f, ""},
-    {Engine::kSize, "Size", ParamKind::Continuous, 0.0f, 1.0f, 0.5f, ""},
-    {Engine::kPitch, "Pitch", ParamKind::Continuous, -24.0f, 24.0f, 0.0f, "st"},
-    {Engine::kDensity, "Density", ParamKind::Continuous, 0.0f, 1.0f, 0.75f, ""},
-    {Engine::kTexture, "Texture", ParamKind::Continuous, 0.0f, 1.0f, 0.5f, ""},
-    {Engine::kDryWet, "Dry/Wet", ParamKind::Continuous, 0.0f, 1.0f, 0.5f, ""},
-    {Engine::kStereoSpread, "Spread", ParamKind::Continuous, 0.0f, 1.0f, 0.0f, ""},
-    {Engine::kFeedback, "Feedback", ParamKind::Continuous, 0.0f, 1.0f, 0.0f, ""},
-    {Engine::kReverb, "Reverb", ParamKind::Continuous, 0.0f, 1.0f, 0.0f, ""},
-    {Engine::kInputGain, "In Gain", ParamKind::Continuous, -18.0f, 6.0f, 0.0f, "dB"},
-    {Engine::kFreeze, "Freeze", ParamKind::Toggle, 0.0f, 1.0f, 0.0f, ""},
-    {Engine::kTrigger, "Trig", ParamKind::Trigger, 0.0f, 1.0f, 0.0f, ""},
-    {Engine::kGate, "Gate", ParamKind::Toggle, 0.0f, 1.0f, 0.0f, ""},
-    {Engine::kQuality, "Quality", ParamKind::Choice, 0.0f, 3.0f, 0.0f, ""},
-    {Engine::kPlaybackMode, "Mode", ParamKind::Choice, 0.0f, 3.0f, 0.0f, ""},
+    {Engine::kPosition, "Position", ParamKind::Continuous, 0.0f, 1.0f, 0.5f, "", nullptr},
+    {Engine::kSize, "Size", ParamKind::Continuous, 0.0f, 1.0f, 0.5f, "", nullptr},
+    {Engine::kPitch, "Pitch", ParamKind::Continuous, -24.0f, 24.0f, 0.0f, "st", nullptr},
+    {Engine::kDensity, "Density", ParamKind::Continuous, 0.0f, 1.0f, 0.75f, "", nullptr},
+    {Engine::kTexture, "Texture", ParamKind::Continuous, 0.0f, 1.0f, 0.5f, "", nullptr},
+    {Engine::kDryWet, "Dry/Wet", ParamKind::Continuous, 0.0f, 1.0f, 0.5f, "", nullptr},
+    {Engine::kStereoSpread, "Spread", ParamKind::Continuous, 0.0f, 1.0f, 0.0f, "", nullptr},
+    {Engine::kFeedback, "Feedback", ParamKind::Continuous, 0.0f, 1.0f, 0.0f, "", nullptr},
+    {Engine::kReverb, "Reverb", ParamKind::Continuous, 0.0f, 1.0f, 0.0f, "", nullptr},
+    {Engine::kInputGain, "In Gain", ParamKind::Continuous, -18.0f, 6.0f, 0.0f, "dB", nullptr},
+    {Engine::kFreeze, "Freeze", ParamKind::Toggle, 0.0f, 1.0f, 0.0f, "", nullptr},
+    {Engine::kTrigger, "Trig", ParamKind::Trigger, 0.0f, 1.0f, 0.0f, "", nullptr},
+    {Engine::kGate, "Gate", ParamKind::Toggle, 0.0f, 1.0f, 0.0f, "", nullptr},
+    {Engine::kQuality, "Quality", ParamKind::Choice, 0.0f, 3.0f, 0.0f, "", kQualityLabels},
+    {Engine::kPlaybackMode, "Mode", ParamKind::Choice, 0.0f, 3.0f, 0.0f, "", kModeLabels},
 };
 
 const wf::ParamTable kTable = wf::MakeParamTable(kSpecs);
@@ -148,6 +152,26 @@ void wf::clouds::Engine::SetParam(ParamId id, float value) noexcept {
         }
         default:
             break;
+    }
+}
+
+float wf::clouds::Engine::ParamValue(ParamId id) const noexcept {
+    switch (id) {
+        case kPosition: return controls_.position;
+        case kSize: return controls_.size;
+        case kPitch: return controls_.pitch;
+        case kDensity: return controls_.density;
+        case kTexture: return controls_.texture;
+        case kDryWet: return controls_.dryWet;
+        case kStereoSpread: return controls_.stereoSpread;
+        case kFeedback: return controls_.feedback;
+        case kReverb: return controls_.reverb;
+        case kInputGain: return inputGainDecibels_;
+        case kFreeze: return controls_.freeze ? 1.0f : 0.0f;
+        case kGate: return controls_.gate ? 1.0f : 0.0f;
+        case kQuality: return static_cast<float>(module_.GetQuality());
+        case kPlaybackMode: return static_cast<float>(module_.GetPlaybackMode());
+        default: return 0.0f;
     }
 }
 

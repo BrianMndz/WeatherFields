@@ -1,6 +1,6 @@
 # WeatherFields Project Guide
 
-Last updated: 2026-10-17.
+Last updated: 2026-10-18.
 
 Read this at the start of a session. It holds the current status, next
 actions, contracts and decisions. Edit it in place after each step; never
@@ -36,42 +36,23 @@ Daisy Seed3, alone or combined into one system.
 | Area | Status |
 |---|---|
 | MutableDSP | `Modules/MutableDSP`, `main` at `24b201f`: Clouds closure imported unchanged from Eurorack `f4cfa76` (stmlib `e3bd7c9`), CloudsDSP patches applied, `MutableDSP::stmlib` and `MutableDSP::clouds` targets. Object code byte-identical to CloudsDSP's. |
-| JUCE | `Modules/JUCE` pinned at 9.0.4; configures from `Platforms/Desktop`. No app yet. |
+| JUCE | `Modules/JUCE` pinned at 9.0.4; configures from `Platforms/Desktop`. |
 | Build skeleton | Top-level CMake, presets `dev` and `desktop`, `cmake/WeatherFields.cmake`, CTest. |
-| Core | Header-only `wf::core`, all compiling for the board with Clang 3.9: `wf/Dsp.h` (`IsFinite`, checked as built and under `-O3 -ffast-math`; `ApplyGainRamp`, JUCE's `applyGainRamp` semantics); `wf/Params.h` (`ParamId`, `ParamKind`, `ParamSpec`, `ParamTable`, `ConstrainValue`, which rejects non-finite values, and `IsValidParamTable`); `wf/Events.h` (8-byte POD `ControlEvent`); `wf/SpscQueue.h` (lock-free, power-of-two capacity, trivially copyable items; its own header because the recorder will use it too). The queue's two-thread check also runs clean under ThreadSanitizer, which flags a copy with relaxed ordering. `wf/Engine.h` (`wf::Engine`: `Name`, `Params`, `MemoryBytes`, `Prepare`, `Handle`, `Process`; `MemoryBlock`, `PrepareStatus`, `CheckMemory`, 16-byte `kMemoryAlignment`); `wf/Rig.h` (`ConstrainEvent`, `wf::Rig` whose non-virtual `Handle()` validates every event, `SoloRig<E>`), checked with a gain engine and compiled for the board with `-fno-exceptions -fno-rtti`. |
-| Engines/Clouds | `wf::clouds`: CloudsEngine's `Engine/` from `e7738d9`, now in namespace `wf::clouds` with its `Engine` class renamed `Module` (`Module.h`, `Module.cpp`; macro `WF_CLOUDS_NODISCARD`; MI code written `::clouds::`). Otherwise unchanged: the 16 render hashes still match and `check.sh` passes. Its five checks pass in Debug and Release; their only other change is `std::byte` → `unsigned char` for the test arenas, as checks compile as C++14. `wf::clouds::Engine` implements `wf::Engine` around it: 15 parameters (IDs 0-8 the knobs in module order, 9 IN GAIN, 10 Freeze, 11 Trigger, 12 Gate, 13 Quality, 14 Mode) with JUCE's ranges and defaults, applied from the table in `Prepare()`; one 184,192-byte arena for both Module arenas; 32/44.1/48 kHz through `SampleRateAdapter` with `ServicePolicy::AfterEachBlock`; quality and mode changes in event order with `Service()` at once, releasing freeze when they erase; a second `Prepare()` rebuilds the Module in place. `wf_clouds_engine_check`: all 16 quality × mode renders through the rig are byte-identical to the Module's own, 32 frames later (the seven that use randomness fail with another seed), plus defaults, clamping at the rig, the freeze rules and IN GAIN at 48 kHz. |
+| Core | Header-only `wf::core`, all compiling for the board with Clang 3.9: `wf/Dsp.h` (`IsFinite`, checked as built and under `-O3 -ffast-math`; `ApplyGainRamp`, JUCE's `applyGainRamp` semantics); `wf/Params.h` (`ParamId`, `ParamKind`, `ParamSpec` with static choice labels, `ParamTable`, `ConstrainValue`, which rejects non-finite values, and `IsValidParamTable`, which also requires a label per Choice index); `wf/Events.h` (8-byte POD `ControlEvent`); `wf/SpscQueue.h` (lock-free, power-of-two capacity, trivially copyable items, `PopAvailable()` for the consumer; its own header because the recorder will use it too). `wf/ControlInput.h` (`ControlInput<N>`: one producer's queue; `Drain(rig, max)` takes at most `max` and never more than was queued when it began, so a refilling producer cannot stretch the callback; overflow and dropped counters; `Discard()` for rig swaps). The queue's two-thread check also runs clean under ThreadSanitizer, which flags a copy with relaxed ordering. `wf/Engine.h` (`wf::Engine`: `Name`, `Params`, `MemoryBytes`, `Prepare`, `Handle`, `ParamValue` (audio-thread readback, including changes the engine makes itself), `Process`; silent and deaf until a successful `Prepare()`; input buffers never null; `MemoryBlock`, `PrepareStatus`, `CheckMemory`, 16-byte `kMemoryAlignment`); `wf/Rig.h` (`ConstrainEvent`, `wf::Rig` with a const `Slot()` and a private `MutableSlot()` that only its non-virtual `Handle()` uses, so every change is validated; the rig-swap procedure; `SoloRig<E>`), checked with a gain engine (readback, lifecycle) and compiled for the board with `-fno-exceptions -fno-rtti`. |
+| Engines/Clouds | `wf::clouds`: CloudsEngine's `Engine/` from `e7738d9`, now in namespace `wf::clouds` with its `Engine` class renamed `Module` (`Module.h`, `Module.cpp`; macro `WF_CLOUDS_NODISCARD`; MI code written `::clouds::`). Otherwise unchanged: the 16 render hashes still match and `check.sh` passes. Its five checks pass in Debug and Release; their only other change is `std::byte` → `unsigned char` for the test arenas, as checks compile as C++14. `wf::clouds::Engine` implements `wf::Engine` around it: 15 parameters (IDs 0-8 the knobs in module order, 9 IN GAIN, 10 Freeze, 11 Trigger, 12 Gate, 13 Quality, 14 Mode) with JUCE's ranges and defaults, applied from the table in `Prepare()`; labels for quality ("Stereo 16-bit" ...) and mode ("Granular", "Stretch", "Looping Delay", "Spectral"); `ParamValue()` reads quality and mode from the Module; one 184,192-byte arena for both Module arenas; 32/44.1/48 kHz through `SampleRateAdapter` with `ServicePolicy::AfterEachBlock`; quality and mode changes in event order with `Service()` at once, releasing freeze when they erase; a second `Prepare()` rebuilds the Module in place. `wf_clouds_engine_check`: all 16 quality × mode renders through the rig are byte-identical to the Module's own, 32 frames later (the seven that use randomness fail with another seed), plus defaults, clamping at the rig, the freeze rules, readback (a quality change reads back with freeze released) and IN GAIN at 48 kHz. |
 | Tools/Render | `wf_render_clouds`: CloudsEngine's CLI (`e7738d9`), only its include and name changed. CTest `wf_render_clouds_references` renders all 16 quality × mode combinations and compares them with `clouds_references.sha256`, taken from CloudsEngine's `clouds_cli` built from `e7738d9`: byte-identical in Debug and Release, and equal to CloudsEngine's recorded table. The references hold for macOS arm64 with Apple Clang. |
-| Rigs, hosts | None yet. |
+| Desktop host | `wf_desktop` (`WeatherFields.app`, `desktop` preset): rig menu (Clouds' `SoloRig`), audio settings saved between runs, status line (rate, block, CPU, a rig's failed `Prepare()`, GUI overflow and dropped counts), and `RigPanel` generated from `ParamSpec` (knobs, label menus, latching toggles, trigger buttons). `AudioHost` runs the rig in JUCE's callback: GUI `ControlInput` drained (at most 32 per callback), then `ParamValue()` published to atomics, then `Process()` from scratch buffers in pieces of at most the prepared block; silent input when there is none, mono input to both sides. The rig is prepared in `audioDeviceAboutToStart()`; a device restart replays the published values as events. Rig swaps detach the callback, discard queued events, destroy the old rig before making the new one. The GUI keeps its latest value per parameter when its input is full; the panel shows only published values. Builds clean with `-Wall -Wextra`; starts without assertions. Not yet listened to. |
+| Rigs | Only `SoloRig<E>`. |
 | Manifests | `wf_add_manifest(<name> TARGET <t>)` writes `build/<preset>/manifests/<name>.txt` (sources, include dirs, defines of the target's link closure). One so far: `clouds` (`wf::clouds`, 13 translation units). |
 | Tools/Bela | `check.sh` reads the manifests (configuring the `dev` preset first) and passes on all of `clouds` with Clang 3.9 and the board's headers; `--self-test` passes. Toolchain cache shared by all projects at `~/.cache/bela-toolchain` (CloudsEngine reaches it through a symlink at its old path). `deploy.sh` and `profile.sh` are still CloudsEngine's and stop with a message until the Bela host. |
 
 ## Next actions
 
-1. **Desktop host, first playable.** First the Core contracts it needs (from
-   the 2026-10-18 Core review), each with a check:
-   - **Parameter readback:** a `wf::Engine` query for a parameter's current
-     value, called on the audio thread; the host publishes the values to
-     preallocated atomics for the GUI. The panel must show state the engine
-     changes itself (a quality change releases freeze), and reading
-     `clouds::Engine::Controls()` from the GUI would be a data race.
-   - **Choice labels** in `ParamSpec` (static strings, null for other kinds),
-     so the panel shows "Looping Delay" rather than "Mode 2". Curves and
-     formatting only when a control needs them.
-   - **Bounded event handling:** each callback handles at most a fixed number
-     of events (at most what was queued when it started), so a producer
-     refilling the queue cannot stretch the callback; overflow counters;
-     drain the producers in a fixed order. Producer policy for a full queue:
-     the GUI keeps its latest value per parameter and retries; note-off
-     policy comes with the Tone engine. Budget `Handle()` plus `Process()`:
-     a Clouds quality or mode event runs `Service()` (204-230 µs on Bela).
-   - **Lifecycle wording:** after a failed `Prepare()` the engine outputs
-     silence and ignores events; hosts always pass valid (silent) input
-     buffers; how a host swaps rigs safely.
-   - **`Rig::Slot()` returns `const Engine*`**, so hosts read names and
-     tables without a path around `Rig::Handle()`'s validation.
-
-   Then the JUCE app: a rig menu, audio in to out, a generic panel built from
-   `ParamSpec`. Listen with the PO-33.
+1. **Desktop host, first playable: listen.** Run `wf_desktop` (CLion: the
+   `desktop` profile, run configuration `wf_desktop`), pick the interface
+   under Audio... at 32, 44.1 or 48 kHz, PO-33 into the input, and play
+   Clouds from the panel. Check freeze turning off when quality changes, and
+   that a buffer-size change keeps the settings.
 2. **MIDI**: log the ROLI messages, write a hard-coded `MidiMap`, play Clouds
    from the blocks. Milestone 1 on desktop.
 3. **Bela host**: the host library and a first app with its manifest;
@@ -169,6 +150,11 @@ cmake --preset dev && cmake --build --preset dev && ctest --preset dev
 cmake --preset desktop && cmake --build --preset desktop     # adds JUCE
 ```
 
+The user's IDE is CLion: it lists `dev` and `desktop` from `CMakePresets.json`
+as CMake profiles, building into the same `build/<preset>` trees, so the
+terminal and the IDE share one build. Keep the presets the single source of
+build settings.
+
 Bela compile check (needs `Tools/Bela/fetch-toolchain.sh` once, and the
 board's headers from `pull-board-headers.sh`):
 
@@ -198,6 +184,8 @@ Earlier decisions are in the handover, section 2.
 | 2026-10-18 | One memory arena per engine: `MemoryBytes()` then `Prepare()` with one aligned block; a list of regions (for example, SRAM for Clouds' small buffer on Daisy) only if profiling needs it. |
 | 2026-10-18 | Naming: `<name>::Engine` implements `wf::Engine`; MI ports keep the module-faithful class as `<name>::Module`. |
 | 2026-10-18 | Core review accepted: Core keeps its shape and grows by milestone. Readback, choice labels, bounded event handling, lifecycle wording and a const `Rig::Slot()` come before the desktop host; the later contracts are listed under open questions. |
+| 2026-10-18 | Readback is `Engine::ParamValue()`, audio thread only; hosts publish it to atomics. Choice labels live in `ParamSpec::labels` (null for other kinds). Event bounds are per producer (`ControlInput::Drain(rig, max)`), so a flooding MIDI input cannot starve the GUI. `Rig::Slot()` is const; only `Rig::Handle()` reaches a mutable engine. |
+| 2026-10-18 | Desktop host: one app target (`wf_desktop`) holding the host and the rig list; the host becomes a library when a second desktop app needs it. Rigs are prepared in `audioDeviceAboutToStart()` (never concurrent with the callback); a device restart replays the published values, so changing the buffer size keeps the sound. The desktop target uses the repo's `-Wall -Wextra`, not `juce_recommended_warning_flags` (its `-Wfloat-equal` hits Core's deliberate exact comparisons). |
 
 ## Open questions
 

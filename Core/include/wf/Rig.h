@@ -36,6 +36,13 @@ inline bool ConstrainEvent(const ParamTable& params, ControlEvent& event) noexce
 // audio routing between them. A host (desktop, Bela, Daisy) drives a rig
 // without knowing what is inside, which is what lets the same rig run on
 // every host. Lifecycle and threads as for Engine.
+//
+// To swap rigs, a host first stops calling the old one (it stops the
+// callback, or the audio thread acknowledges a switch to silence), discards
+// the events still queued for it (ControlInput::Discard(); their slots and
+// IDs mean nothing to the new rig), prepares the new rig with its own memory,
+// and only then calls it. The old rig's memory is freed once the audio
+// thread has stopped using it.
 class Rig {
 public:
     virtual ~Rig() = default;
@@ -45,9 +52,9 @@ public:
 
     virtual std::size_t SlotCount() const noexcept = 0;
 
-    // The engine in `slot`, or null past the last one. The host reads names
-    // and parameter tables through it; changes go through Handle().
-    virtual Engine* Slot(std::size_t slot) noexcept = 0;
+    // The engine in `slot`, or null past the last one, for its name,
+    // parameter table and values. Changes go through Handle() only.
+    virtual const Engine* Slot(std::size_t slot) const noexcept = 0;
 
     // The total for every slot, each part a multiple of kMemoryAlignment.
     virtual std::size_t MemoryBytes(float sampleRate, std::size_t maxFrames) const noexcept = 0;
@@ -59,7 +66,7 @@ public:
     // Real-time. The one way into an engine: the event goes to its slot only
     // if ConstrainEvent() accepts it. Returns false for a dropped event.
     bool Handle(ControlEvent event) noexcept {
-        Engine* engine = Slot(event.target);
+        Engine* engine = MutableSlot(event.target);
         if (engine == nullptr || !ConstrainEvent(engine->Params(), event)) return false;
         engine->Handle(event);
         return true;
@@ -68,6 +75,10 @@ public:
     // Real-time; the same buffer rules as Engine::Process().
     virtual void Process(const float* inLeft, const float* inRight,
                          float* outLeft, float* outRight, std::size_t frames) noexcept = 0;
+
+private:
+    // The same engine as Slot(), for Handle() alone.
+    virtual Engine* MutableSlot(std::size_t slot) noexcept = 0;
 };
 
 // The rig for one engine on its own: input to E to output, E in slot 0. It
@@ -78,10 +89,13 @@ class SoloRig final : public Rig {
 public:
     // The engine itself, for hosts and checks that know its type.
     E& Get() noexcept { return engine_; }
+    const E& Get() const noexcept { return engine_; }
 
     const char* Name() const noexcept override { return engine_.Name(); }
     std::size_t SlotCount() const noexcept override { return 1; }
-    Engine* Slot(std::size_t slot) noexcept override { return slot == 0 ? &engine_ : nullptr; }
+    const Engine* Slot(std::size_t slot) const noexcept override {
+        return slot == 0 ? &engine_ : nullptr;
+    }
 
     std::size_t MemoryBytes(float sampleRate, std::size_t maxFrames) const noexcept override {
         return engine_.MemoryBytes(sampleRate, maxFrames);
@@ -98,6 +112,10 @@ public:
     }
 
 private:
+    Engine* MutableSlot(std::size_t slot) noexcept override {
+        return slot == 0 ? &engine_ : nullptr;
+    }
+
     E engine_;
 };
 

@@ -41,6 +41,7 @@ public:
 
     wf::PrepareStatus Prepare(float sampleRate, std::size_t maxFrames,
                               wf::MemoryBlock memory) noexcept override {
+        prepared_ = false;
         if (!(sampleRate > 0.0f)) return wf::PrepareStatus::UnsupportedSampleRate;
         if (maxFrames == 0) return wf::PrepareStatus::UnsupportedBlockSize;
         const wf::PrepareStatus status = wf::CheckMemory(memory, MemoryBytes(sampleRate, maxFrames));
@@ -54,11 +55,13 @@ public:
         resets_ = 0;
         lastNote_ = -1;
         lastVelocity_ = -1.0f;
+        prepared_ = true;
         return wf::PrepareStatus::Ok;
     }
 
     void Handle(const wf::ControlEvent& event) noexcept override {
         ++handled_;
+        if (!prepared_) return;
         switch (event.type) {
             case wf::ControlEvent::Type::Param:
                 if (event.id == kGain) {
@@ -81,9 +84,18 @@ public:
         }
     }
 
+    float ParamValue(wf::ParamId id) const noexcept override {
+        switch (id) {
+            case kGain: return gainDb_;
+            case kMute: return mute_ ? 1.0f : 0.0f;
+            case kCurve: return curve_;
+            default: return 0.0f;
+        }
+    }
+
     void Process(const float* inLeft, const float* inRight, float* outLeft, float* outRight,
                  std::size_t frames) noexcept override {
-        const float gain = mute_ ? 0.0f : linearGain_;
+        const float gain = !prepared_ || mute_ ? 0.0f : linearGain_;
         for (std::size_t i = 0; i < frames; ++i) {
             outLeft[i] = inLeft[i] * gain;
             outRight[i] = inRight[i] * gain;
@@ -97,18 +109,21 @@ public:
     int resets_ = 0;
     int lastNote_ = -1;
     float lastVelocity_ = -1.0f;
-    int handled_ = 0;
+    int handled_ = 0;  // calls, prepared or not
+    bool prepared_ = false;
 
 private:
     static const wf::ParamSpec kSpecs[];
     static const wf::ParamTable kTable;
 };
 
+const char* const kCurveLabels[] = {"Linear", "Square", "Cube"};
+
 const wf::ParamSpec GainEngine::kSpecs[] = {
-    {kGain, "Gain", wf::ParamKind::Continuous, -60.0f, 12.0f, 0.0f, "dB"},
-    {kMute, "Mute", wf::ParamKind::Toggle, 0.0f, 1.0f, 0.0f, ""},
-    {kCurve, "Curve", wf::ParamKind::Choice, 0.0f, 2.0f, 0.0f, ""},
-    {kReset, "Reset", wf::ParamKind::Trigger, 0.0f, 1.0f, 0.0f, ""},
+    {kGain, "Gain", wf::ParamKind::Continuous, -60.0f, 12.0f, 0.0f, "dB", nullptr},
+    {kMute, "Mute", wf::ParamKind::Toggle, 0.0f, 1.0f, 0.0f, "", nullptr},
+    {kCurve, "Curve", wf::ParamKind::Choice, 0.0f, 2.0f, 0.0f, "", kCurveLabels},
+    {kReset, "Reset", wf::ParamKind::Trigger, 0.0f, 1.0f, 0.0f, "", nullptr},
 };
 const wf::ParamTable GainEngine::kTable = wf::MakeParamTable(GainEngine::kSpecs);
 
@@ -130,6 +145,9 @@ void CheckSlotsAndMemory() {
     Expect(base.SlotCount() == 1, "a solo rig has one slot");
     Expect(base.Slot(0) == &rig.Get(), "slot 0 is the engine");
     Expect(base.Slot(1) == nullptr, "there is no slot 1");
+    const wf::Rig& constBase = rig;
+    Expect(std::strcmp(constBase.Slot(0)->Name(), "Gain") == 0,
+           "a const rig gives read access to its engines");
 
     const std::size_t bytes = base.MemoryBytes(48000.0f, kMaxFrames);
     Expect(bytes == kMaxFrames * GainEngine::kMemoryPerFrame, "the rig reports its engine's memory");
@@ -201,6 +219,61 @@ void CheckHandle() {
     Expect(engine.gainDb_ == 12.0f, "dropped events leave the parameters alone");
 }
 
+// What a host's panel reads back after the callback's events.
+void CheckParamValue() {
+    wf::SoloRig<GainEngine> rig;
+    wf::Rig& base = rig;
+    Expect(base.Prepare(48000.0f, kMaxFrames, wf::MemoryBlock{arena, sizeof(arena)}) ==
+               wf::PrepareStatus::Ok,
+           "the rig prepares");
+    const wf::Engine& engine = *base.Slot(0);
+
+    Expect(engine.ParamValue(GainEngine::kGain) == 0.0f && engine.ParamValue(GainEngine::kMute) == 0.0f &&
+               engine.ParamValue(GainEngine::kCurve) == 0.0f,
+           "values start at the defaults");
+    base.Handle(Event(Type::Param, 0, GainEngine::kGain, 30.0f));
+    base.Handle(Event(Type::Param, 0, GainEngine::kCurve, 1.6f));
+    base.Handle(Event(Type::Param, 0, GainEngine::kMute, 0.7f));
+    Expect(engine.ParamValue(GainEngine::kGain) == 12.0f, "a value reads back as constrained");
+    Expect(engine.ParamValue(GainEngine::kCurve) == 2.0f &&
+               std::strcmp(engine.Params().Find(GainEngine::kCurve)->labels[2], "Cube") == 0,
+           "a Choice reads back as an index into its labels");
+    Expect(engine.ParamValue(GainEngine::kMute) == 1.0f, "a Toggle reads back as 0 or 1");
+    Expect(engine.ParamValue(GainEngine::kReset) == 0.0f && engine.ParamValue(9) == 0.0f,
+           "triggers and unknown IDs read 0");
+}
+
+// A failed Prepare() leaves the engine silent and deaf, so a host can keep
+// its callback running around it.
+void CheckLifecycle() {
+    wf::SoloRig<GainEngine> rig;
+    wf::Rig& base = rig;
+    GainEngine& engine = rig.Get();
+
+    float left[kMaxFrames], right[kMaxFrames];
+    const auto fillAndProcess = [&] {
+        for (std::size_t i = 0; i < kMaxFrames; ++i) left[i] = right[i] = 0.5f;
+        base.Process(left, right, left, right, kMaxFrames);
+        bool silent = true;
+        for (std::size_t i = 0; i < kMaxFrames; ++i) {
+            silent = silent && left[i] == 0.0f && right[i] == 0.0f;
+        }
+        return silent;
+    };
+
+    Expect(fillAndProcess(), "an engine never prepared outputs silence");
+    Expect(base.Prepare(48000.0f, kMaxFrames, wf::MemoryBlock{arena, sizeof(arena)}) ==
+               wf::PrepareStatus::Ok,
+           "the rig prepares");
+    Expect(!fillAndProcess(), "a prepared engine passes audio");
+    Expect(base.Prepare(48000.0f, kMaxFrames, wf::MemoryBlock{nullptr, 0}) ==
+               wf::PrepareStatus::MemoryTooSmall,
+           "a second Prepare() fails");
+    Expect(fillAndProcess(), "after a failed Prepare() the engine outputs silence");
+    base.Handle(Event(Type::Param, 0, GainEngine::kGain, -6.0f));
+    Expect(engine.gainDb_ == 0.0f, "after a failed Prepare() the engine ignores events");
+}
+
 void CheckProcess() {
     wf::SoloRig<GainEngine> rig;
     wf::Rig& base = rig;
@@ -247,6 +320,8 @@ void CheckProcess() {
 int main() {
     CheckSlotsAndMemory();
     CheckHandle();
+    CheckParamValue();
+    CheckLifecycle();
     CheckProcess();
 
     if (failures != 0) {

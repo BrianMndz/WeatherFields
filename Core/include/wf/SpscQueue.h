@@ -25,7 +25,7 @@ class SpscQueue {
     // Bela's libstdc++ 6 lacks is_always_lock_free; this builtin answers the
     // same question at compile time.
 #if defined(__GNUC__)
-    static_assert(__atomic_always_lock_free(sizeof(std::size_t), 0),
+    static_assert(__atomic_always_lock_free(sizeof(std::size_t), nullptr),
                   "the indices must be lock-free atomics");
 #endif
 
@@ -56,6 +56,12 @@ public:
         // Release: the producer reuses the slot only after this read.
         head_.store(head + 1, std::memory_order_release);
         return true;
+    }
+
+    // Consumer thread only. How many items TryPop() will return before the
+    // queue can read empty; the producer may add more meanwhile.
+    std::size_t PopAvailable() const noexcept {
+        return tail_.load(std::memory_order_acquire) - head_.load(std::memory_order_relaxed);
     }
 
 private:

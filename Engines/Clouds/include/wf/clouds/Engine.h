@@ -67,13 +67,16 @@ public:
     // Freeze turned on by a later event stays on.
     void Handle(const ControlEvent& event) noexcept override;
 
+    // Quality and mode read back from the Module, so a host sees what runs.
+    float ParamValue(ParamId id) const noexcept override;
+
     // Adds the adapters' latency: 32 engine frames, plus up to a few frames
     // of resampling at 44.1 and 48 kHz.
     void Process(const float* inLeft, const float* inRight,
                  float* outLeft, float* outRight, std::size_t frames) noexcept override;
 
-    // The state the next Process() uses, for hosts showing it (freeze, for
-    // example, can be released by a quality change) and for checks.
+    // The state the next Process() uses, for checks and hosts that know the
+    // engine's type; other hosts read ParamValue().
     const ControlSnapshot& Controls() const noexcept { return controls_; }
     float InputGainDecibels() const noexcept { return inputGainDecibels_; }
     Quality GetQuality() const noexcept { return module_.GetQuality(); }

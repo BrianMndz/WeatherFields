@@ -146,6 +146,39 @@ void CheckFreezeRelease() {
            "a second Prepare() starts again from the defaults");
 }
 
+// What a host's panel reads: every value as constrained, and the changes the
+// engine makes itself.
+void CheckParamValue() {
+    wf::Rig& base = rig;
+    Expect(base.Prepare(48000.0f, 256, kArena) == wf::PrepareStatus::Ok, "prepares");
+    const wf::Engine& engine = *static_cast<const wf::Rig&>(rig).Slot(0);
+    const wf::ParamTable& params = engine.Params();
+
+    bool defaults = true;
+    for (std::size_t i = 0; i < params.count; ++i) {
+        const wf::ParamSpec& spec = params.specs[i];
+        const float expected = spec.kind == wf::ParamKind::Trigger ? 0.0f : spec.def;
+        defaults = defaults && engine.ParamValue(spec.id) == expected;
+    }
+    Expect(defaults, "every parameter reads back its default");
+
+    SetParam(Engine::kPitch, 30.0f);
+    SetParam(Engine::kInputGain, -3.0f);
+    Expect(engine.ParamValue(Engine::kPitch) == 24.0f, "pitch reads back clamped");
+    Expect(engine.ParamValue(Engine::kInputGain) == -3.0f, "IN GAIN reads back in dB");
+
+    SetParam(Engine::kFreeze, 1.0f);
+    SetParam(Engine::kPlaybackMode, 2.0f);
+    Expect(engine.ParamValue(Engine::kFreeze) == 1.0f &&
+               std::strcmp(params.Find(Engine::kPlaybackMode)
+                               ->labels[static_cast<int>(engine.ParamValue(Engine::kPlaybackMode))],
+                           "Looping Delay") == 0,
+           "mode reads back as its label's index, freeze kept");
+    SetParam(Engine::kQuality, 3.0f);
+    Expect(engine.ParamValue(Engine::kQuality) == 3.0f && engine.ParamValue(Engine::kFreeze) == 0.0f,
+           "a quality change reads back, with the freeze it released");
+}
+
 // --- Renders --------------------------------------------------------------------
 
 // wf_render_clouds's timeline (Tools/Render/RenderClouds.cpp): a 220/330 Hz
@@ -322,6 +355,7 @@ int main() {
     CheckPrepare();
     CheckDefaultsAndEvents();
     CheckFreezeRelease();
+    CheckParamValue();
     CheckRendersMatchModule();
     CheckInputGainAt48k();
 

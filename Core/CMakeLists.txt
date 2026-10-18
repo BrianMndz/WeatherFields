@@ -29,6 +29,11 @@ wf_add_check(wf_core_rig_check
     LINK wf::core
 )
 
+wf_add_check(wf_core_control_input_check
+    SOURCES tests/ControlInputCheck.cpp
+    LINK wf::core
+)
+
 find_package(Threads REQUIRED)
 wf_add_check(wf_core_spsc_queue_check
     SOURCES tests/SpscQueueCheck.cpp

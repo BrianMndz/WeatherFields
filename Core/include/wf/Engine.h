@@ -42,8 +42,12 @@ inline PrepareStatus CheckMemory(MemoryBlock memory, std::size_t required) noexc
 }
 
 // The interface every engine implements, on every platform. Prepare() runs
-// off the audio thread; Handle() and Process() run on it and follow the
-// real-time rules: no allocation, locks, I/O or system calls.
+// off the audio thread; ParamValue(), Handle() and Process() run on it and
+// follow the real-time rules: no allocation, locks, I/O or system calls.
+//
+// Until a Prepare() returns Ok, and again after one that fails, the engine
+// is silent: Process() writes zeros and Handle() ignores events. A host may
+// therefore run its callback around an engine whose Prepare() failed.
 class Engine {
 public:
     virtual ~Engine() = default;
@@ -65,12 +69,24 @@ public:
                                   MemoryBlock memory) noexcept = 0;
 
     // Real-time, before Process(). The rig has validated `event` against
-    // Params() and constrained its value (ConstrainEvent() in Rig.h).
+    // Params() and constrained its value (ConstrainEvent() in Rig.h). Its
+    // cost counts towards the callback with Process(): an engine documents
+    // any expensive event (Clouds' quality and mode run the module's
+    // Service(), about 0.2 ms on Bela).
     virtual void Handle(const ControlEvent& event) noexcept = 0;
+
+    // Real-time, on the audio thread only. The value parameter `id` has now:
+    // as the last event set it, or as the engine changed it itself (a Clouds
+    // quality change releases freeze), constrained as by ConstrainValue().
+    // Trigger and unknown IDs read 0; values are meaningful only after a
+    // successful Prepare(). Other threads never call it: the host copies the
+    // values out (to atomics for its GUI) after the callback's events.
+    virtual float ParamValue(ParamId id) const noexcept = 0;
 
     // Real-time. `frames` is at most Prepare()'s maxFrames. Planar stereo;
     // each output may be the same buffer as its input (in-place, as Bela
-    // processes), but buffers never partially overlap.
+    // processes), but buffers never partially overlap. Inputs are always
+    // valid: a host with no input passes silence, never null.
     virtual void Process(const float* inLeft, const float* inRight,
                          float* outLeft, float* outRight, std::size_t frames) noexcept = 0;
 };

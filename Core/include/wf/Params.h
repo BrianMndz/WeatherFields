@@ -31,6 +31,9 @@ struct ParamSpec {
     float max;
     float def;
     const char* unit;  // static storage; "" when unitless
+    // Choice only: max + 1 names in index order, in static storage, so a
+    // panel shows "Looping Delay" rather than 2. Null for the other kinds.
+    const char* const* labels;
 };
 
 // An engine's parameters, in display order. Tables are small, so lookups are
@@ -78,8 +81,9 @@ inline bool ConstrainValue(const ParamSpec& spec, float& value) noexcept {
 }
 
 // Whether a table is well-formed: unique IDs, names and units present,
-// finite ranges with min <= def <= max, and each kind's rules above. Engines
-// check their own table with it.
+// finite ranges with min <= def <= max, and each kind's rules above, with a
+// label for every Choice index and none for other kinds. Engines check their
+// own table with it.
 inline bool IsValidParamTable(const ParamTable& table) noexcept {
     if (table.specs == nullptr && table.count != 0) return false;
     for (std::size_t i = 0; i < table.count; ++i) {
@@ -87,6 +91,7 @@ inline bool IsValidParamTable(const ParamTable& table) noexcept {
         if (spec.name == nullptr || spec.unit == nullptr) return false;
         if (!IsFinite(spec.min) || !IsFinite(spec.max) || !IsFinite(spec.def)) return false;
         if (!(spec.min <= spec.def && spec.def <= spec.max)) return false;
+        if (spec.kind != ParamKind::Choice && spec.labels != nullptr) return false;
         switch (spec.kind) {
             case ParamKind::Continuous:
                 break;
@@ -94,6 +99,10 @@ inline bool IsValidParamTable(const ParamTable& table) noexcept {
                 if (spec.min != 0.0f || spec.max != std::floor(spec.max) ||
                     spec.def != std::floor(spec.def)) {
                     return false;
+                }
+                if (spec.labels == nullptr) return false;
+                for (std::size_t index = 0; index <= static_cast<std::size_t>(spec.max); ++index) {
+                    if (spec.labels[index] == nullptr) return false;
                 }
                 break;
             case ParamKind::Toggle:
