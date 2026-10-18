@@ -97,6 +97,10 @@ new repo takes the portable parts (section 7 lists exactly which).
   checks such as `check.sh` are fine.
 - The user develops in CLion, which loads `CMakePresets.json` as CMake
   profiles sharing `build/<preset>` with the terminal.
+- For screen design (the OLED), show about four proposals drawn with u8g2
+  itself (real pixels, a scratch program against `build/dev`) and let the
+  user choose before coding. They prefer quiet UI: no popup for what the
+  screen already shows. Mockups they keep go to `References/CloudsOled/`.
 
 ## 4. Repository architecture
 
@@ -365,7 +369,15 @@ public:
   every translation unit at the top, and wraps `.cc` files in one-line
   `.cpp` includes. The board's make flags: `CPPFLAGS=-std=c++14 -DTEST=1`.
 - **The browser GUI** broadcasts to every open page, so replies echo a random
-  hello ID.
+  hello ID. Page state the board keeps (the OLED's `wf-focus`) needs an
+  owner too: with two pages open, one page's repeats or timeout otherwise
+  override the other's.
+- **Make does not track flags.** A new `-D` was silently ignored by unchanged
+  files; `deploy.sh` keeps the last CPPFLAGS on the board and rebuilds
+  everything when they differ.
+- **The OLED's I2C bus** (bus 1, 400 kHz) takes about 35.5 ms per full
+  128x64 frame in u8g2's 24-byte transfers, so about 28 fps at most; 25 is the
+  default. Draw it on an ordinary thread, never in `render()`.
 - **The Gui library cannot be stopped.** `Gui::cleanup()` is empty and
   `WSServer::cleanup()` only asks seasocks to terminate; nothing joins its
   threads, so a message can arrive during or after `cleanup()`. Whatever its
