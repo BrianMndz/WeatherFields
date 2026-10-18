@@ -8,9 +8,9 @@ append a log. Long detail goes to an archive under `docs/`.
 
 - [`docs/ModularMusicSystem.md`](docs/ModularMusicSystem.md): the vision.
 - [`docs/HANDOVER-ModularSystem.md`](docs/HANDOVER-ModularSystem.md): the
-  decisions up to 2026-10-17, how the user works, platform lessons and the
-  milestones. Where it disagrees with this guide (its section 4 layout, its
-  `ThirdParty/` and `<name>`), this guide wins.
+  decisions up to 2026-10-17, how the user works, platform lessons (kept up to
+  date) and the milestones. Where it disagrees with this guide (its section 4
+  layout, its `ThirdParty/` and `<name>`), this guide wins.
 
 ## Purpose
 
@@ -27,7 +27,10 @@ Daisy Seed3, alone or combined into one system.
 - Implement directly; explain design reasons, not basics (the user is a C/C++
   engineer with DSP experience).
 - Eurorack ports match the firmware closely; state every deliberate deviation.
-- Check a pasted review finding against the code before fixing it.
+- Check a pasted review finding against the code before fixing it; reviewer
+  harnesses under `/private/tmp/weatherfields-*-review.*` can be rerun.
+- The Bela board is shared with other work: when the user says it is busy,
+  nothing runs on it (no `deploy.sh`, no SSH) until they say it is free.
 - Report measurements honestly: observed maxima, callback-cost overruns,
   device underruns and WCET (never claimed) are different things.
 
@@ -49,7 +52,8 @@ Daisy Seed3, alone or combined into one system.
 
 ## Next actions
 
-1. **Clouds on Bela: listen.** `Tools/Bela/deploy.sh --run`, open
+1. **Clouds on Bela: listen.** The Bela review fixes are not on the board yet,
+   so deploy first: `Tools/Bela/deploy.sh --run`, open
    `http://bela.local/gui`, PO-33 into Bela's input. Check the panel as on the
    desktop: knobs, B (1 s quality, 4 s mode), freeze following a quality
    change, TRIG and its gate, the LED meter. Stretch, looping delay and

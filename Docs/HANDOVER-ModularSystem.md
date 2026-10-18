@@ -1,5 +1,12 @@
 # Handover: starting the modular music system repo
 
+> **Status, 2026-10-18.** The repository exists: WeatherFields, namespace `wf`
+> (steps 0 to 3 below are done, and step 5 is under way: Clouds runs on Bela).
+> `PROJECT_GUIDE.md` holds the current status, next actions and decisions, and
+> wins wherever this file disagrees. This file stays for its background: how
+> the user works (section 3), the platform lessons (section 8) and the
+> milestones (section 9), which are kept up to date.
+
 Written 2026-10-17 at the end of the CloudsEngine work. It starts a **new, empty
 repository** in a fresh session. Copy this file and `ModularMusicSystem.md`
 into the new repo's `docs/`. Read this file first.
@@ -81,6 +88,15 @@ new repo takes the portable parts (section 7 lists exactly which).
   fix it and explain.
 - Report measurements honestly. Keep these separate: observed maxima,
   callback-cost overruns, device underruns, and WCET (which is never claimed).
+- Reviews often come from a separate reviewer, pasted as findings, sometimes
+  with a harness left under `/private/tmp/weatherfields-*-review.*`. Check each
+  finding against the code (and the library sources it depends on), fix it,
+  and rerun the harness, adapted if the fix changes a contract it relied on.
+- The Bela board is also used for other work. When the user says it is busy,
+  run nothing on it (no `deploy.sh`, no SSH) until they say it is free; local
+  checks such as `check.sh` are fine.
+- The user develops in CLion, which loads `CMakePresets.json` as CMake
+  profiles sharing `build/<preset>` with the terminal.
 
 ## 4. Repository architecture
 
@@ -309,6 +325,17 @@ public:
   MIDI monitor, or `amidi -d` on Bela. The Lightpad may send per-note
   channels, pitch bend, CC74 and pressure (MPE style). Verify; don't assume.
 - The PO-33 goes into the audio interface's input.
+- **A dialog launched with `launchAsync()` outlives its owner.** JUCE's modal
+  manager deletes it only when it closes, or at shutdown after `shutdown()`
+  has destroyed the main window; an `AudioDeviceSelectorComponent` then
+  unregisters from a destroyed `AudioDeviceManager`. Keep a `SafePointer` and
+  delete it first.
+- **Warnings:** `juce_recommended_warning_flags` adds `-Wfloat-equal`, which
+  fires on Core's deliberate exact comparisons; it arrives through the link
+  interface, after the target's own options, so it cannot be turned off
+  there. The desktop target uses the repo's `-Wall -Wextra` instead.
+- **CLion and the terminal share `build/desktop`.** A configure run while CLion
+  regenerates can fail once; run it again.
 
 **Bela (BeagleBone Black + Bela cape):**
 
@@ -339,6 +366,18 @@ public:
   `.cpp` includes. The board's make flags: `CPPFLAGS=-std=c++14 -DTEST=1`.
 - **The browser GUI** broadcasts to every open page, so replies echo a random
   hello ID.
+- **The Gui library cannot be stopped.** `Gui::cleanup()` is empty and
+  `WSServer::cleanup()` only asks seasocks to terminate; nothing joins its
+  threads, so a message can arrive during or after `cleanup()`. Whatever its
+  callback touches must outlive the process, or be guarded by a flag it
+  checks under a mutex that is never destroyed (`GuiLink`).
+- **The panel's sync:** the board sends values only when they change, so a
+  page must keep the board's latest report and show it once a local edit's
+  hold ends, never drop it; and resend momentary controls (TRIG's gate) on
+  every connection, since a release made while disconnected is lost.
+- **Bela's Makefile picks the libraries** to link (Gui, WSServer) from
+  `#include <libraries/...>` in the project's source files; include them in a
+  `.cpp`, not only in a header.
 - **Node on this Mac** gets EHOSTUNREACH to 192.168.7.2. Tunnel instead:
   `ssh -f -N -L 15555:127.0.0.1:5555 root@192.168.7.2`, then connect to
   `ws://127.0.0.1:15555/gui_control`.
