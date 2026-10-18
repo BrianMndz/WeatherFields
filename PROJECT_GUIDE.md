@@ -38,8 +38,8 @@ Daisy Seed3, alone or combined into one system.
 | MutableDSP | `Modules/MutableDSP`, `main` at `24b201f`: Clouds closure imported unchanged from Eurorack `f4cfa76` (stmlib `e3bd7c9`), CloudsDSP patches applied, `MutableDSP::stmlib` and `MutableDSP::clouds` targets. Object code byte-identical to CloudsDSP's. |
 | JUCE | `Modules/JUCE` pinned at 9.0.4; configures from `Platforms/Desktop`. No app yet. |
 | Build skeleton | Top-level CMake, presets `dev` and `desktop`, `cmake/WeatherFields.cmake`, CTest. |
-| Core | Header-only `wf::core`, all compiling for the board with Clang 3.9: `wf/Dsp.h` (`IsFinite`, checked as built and under `-O3 -ffast-math`); `wf/Params.h` (`ParamId`, `ParamKind`, `ParamSpec`, `ParamTable`, `ConstrainValue`, which rejects non-finite values, and `IsValidParamTable`); `wf/Events.h` (8-byte POD `ControlEvent`); `wf/SpscQueue.h` (lock-free, power-of-two capacity, trivially copyable items; its own header because the recorder will use it too). The queue's two-thread check also runs clean under ThreadSanitizer, which flags a copy with relaxed ordering. `wf/Engine.h` (`wf::Engine`: `Name`, `Params`, `MemoryBytes`, `Prepare`, `Handle`, `Process`; `MemoryBlock`, `PrepareStatus`, `CheckMemory`, 16-byte `kMemoryAlignment`); `wf/Rig.h` (`ConstrainEvent`, `wf::Rig` whose non-virtual `Handle()` validates every event, `SoloRig<E>`), checked with a gain engine and compiled for the board with `-fno-exceptions -fno-rtti`. |
-| Engines/Clouds | `wf::clouds`: CloudsEngine's `Engine/` from `e7738d9`, now in namespace `wf::clouds` with its `Engine` class renamed `Module` (`Module.h`, `Module.cpp`; macro `WF_CLOUDS_NODISCARD`; MI code written `::clouds::`). Otherwise unchanged: the 16 render hashes still match and `check.sh` passes. Its five checks pass in Debug and Release; their only other change is `std::byte` → `unsigned char` for the test arenas, as checks compile as C++14. No `wf::Engine` wrapper yet. |
+| Core | Header-only `wf::core`, all compiling for the board with Clang 3.9: `wf/Dsp.h` (`IsFinite`, checked as built and under `-O3 -ffast-math`; `ApplyGainRamp`, JUCE's `applyGainRamp` semantics); `wf/Params.h` (`ParamId`, `ParamKind`, `ParamSpec`, `ParamTable`, `ConstrainValue`, which rejects non-finite values, and `IsValidParamTable`); `wf/Events.h` (8-byte POD `ControlEvent`); `wf/SpscQueue.h` (lock-free, power-of-two capacity, trivially copyable items; its own header because the recorder will use it too). The queue's two-thread check also runs clean under ThreadSanitizer, which flags a copy with relaxed ordering. `wf/Engine.h` (`wf::Engine`: `Name`, `Params`, `MemoryBytes`, `Prepare`, `Handle`, `Process`; `MemoryBlock`, `PrepareStatus`, `CheckMemory`, 16-byte `kMemoryAlignment`); `wf/Rig.h` (`ConstrainEvent`, `wf::Rig` whose non-virtual `Handle()` validates every event, `SoloRig<E>`), checked with a gain engine and compiled for the board with `-fno-exceptions -fno-rtti`. |
+| Engines/Clouds | `wf::clouds`: CloudsEngine's `Engine/` from `e7738d9`, now in namespace `wf::clouds` with its `Engine` class renamed `Module` (`Module.h`, `Module.cpp`; macro `WF_CLOUDS_NODISCARD`; MI code written `::clouds::`). Otherwise unchanged: the 16 render hashes still match and `check.sh` passes. Its five checks pass in Debug and Release; their only other change is `std::byte` → `unsigned char` for the test arenas, as checks compile as C++14. `wf::clouds::Engine` implements `wf::Engine` around it: 15 parameters (IDs 0-8 the knobs in module order, 9 IN GAIN, 10 Freeze, 11 Trigger, 12 Gate, 13 Quality, 14 Mode) with JUCE's ranges and defaults, applied from the table in `Prepare()`; one 184,192-byte arena for both Module arenas; 32/44.1/48 kHz through `SampleRateAdapter` with `ServicePolicy::AfterEachBlock`; quality and mode changes in event order with `Service()` at once, releasing freeze when they erase; a second `Prepare()` rebuilds the Module in place. `wf_clouds_engine_check`: all 16 quality × mode renders through the rig are byte-identical to the Module's own, 32 frames later (the seven that use randomness fail with another seed), plus defaults, clamping at the rig, the freeze rules and IN GAIN at 48 kHz. |
 | Tools/Render | `wf_render_clouds`: CloudsEngine's CLI (`e7738d9`), only its include and name changed. CTest `wf_render_clouds_references` renders all 16 quality × mode combinations and compares them with `clouds_references.sha256`, taken from CloudsEngine's `clouds_cli` built from `e7738d9`: byte-identical in Debug and Release, and equal to CloudsEngine's recorded table. The references hold for macOS arm64 with Apple Clang. |
 | Rigs, hosts | None yet. |
 | Manifests | `wf_add_manifest(<name> TARGET <t>)` writes `build/<preset>/manifests/<name>.txt` (sources, include dirs, defines of the target's link closure). One so far: `clouds` (`wf::clouds`, 13 translation units). |
@@ -47,22 +47,21 @@ Daisy Seed3, alone or combined into one system.
 
 ## Next actions
 
-1. **The Clouds wrapper** (handover section 10, step 2): the new
-   `wf::clouds::Engine` implements `wf::Engine` around `Module` with its
-   ParamTable: the nine controls, IN GAIN, freeze,
-   trigger, quality and mode, pitch ±24 st. Checks: events reach the
-   snapshot, clamping at the rig, and if it holds, a 32 kHz render
-   byte-identical to `wf_render_clouds`.
-2. **Desktop host, first playable**: a JUCE app with a rig menu, audio in to
+1. **Desktop host, first playable**: a JUCE app with a rig menu, audio in to
    out, and a generic panel built from `ParamSpec`. Listen with the PO-33.
-3. **MIDI**: log the ROLI messages, write a hard-coded `MidiMap`, play Clouds
+   The panel must show state the engine changes itself (a quality change
+   releases freeze): engines need a way to report parameter values back,
+   through atomics read off the audio thread.
+2. **MIDI**: log the ROLI messages, write a hard-coded `MidiMap`, play Clouds
    from the blocks. Milestone 1 on desktop.
-4. **Bela host**: the host library and a first app with its manifest;
+3. **Bela host**: the host library and a first app with its manifest;
    `deploy.sh` stages the app from that manifest (top-level units, `.cc`
    wrappers, headers by include path), `profile.sh` and `Profiler.h` drive a
    rig, `CLOUDS_PROFILE` becomes `WF_PROFILE`, and the board clock is set in
    `deploy.sh`. Then the generic browser panel and USB MIDI; profile, then
-   listen. Milestone 1 complete.
+   listen. Milestone 1 complete. Decide the Clouds service policy there:
+   CloudsEngine's Bela build used `ServicePolicy::Manual` in granular only;
+   the wrapper uses `AfterEachBlock` (needed by stretch and spectral).
 
 ## Architecture
 

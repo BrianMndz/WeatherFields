@@ -1,12 +1,15 @@
-# wf::clouds: the Mutable Instruments Clouds engine at the module's native
-# rate and block size (32 kHz, 32 stereo int16 frames), with host-provided
-# memory, plus the block and sample-rate adapters for host callbacks.
+# wf::clouds: the Mutable Instruments Clouds module at its native rate and
+# block size (32 kHz, 32 stereo int16 frames) with host-provided memory, the
+# block and sample-rate adapters for host callbacks, and wf::clouds::Engine,
+# which puts them behind the wf::Engine interface.
 wf_add_rt_library(clouds
     SOURCES
         src/Module.cpp
         src/BlockAdapter.cpp
         src/SampleRateAdapter.cpp
+        src/Engine.cpp
     LINK
+        wf::core
         MutableDSP::clouds
 )
 
@@ -35,5 +38,10 @@ wf_add_check(wf_clouds_quality_check
 
 wf_add_check(wf_clouds_playback_mode_check
     SOURCES tests/PlaybackModeCheck.cpp
+    LINK wf::clouds
+)
+
+wf_add_check(wf_clouds_engine_check
+    SOURCES tests/EngineCheck.cpp
     LINK wf::clouds
 )
