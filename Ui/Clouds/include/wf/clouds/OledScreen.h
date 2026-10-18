@@ -21,7 +21,9 @@ namespace clouds {
 // around noon, more grains away from it, evenly spaced below noon and
 // random above; SIZE sets how long each grain lives and how long it is
 // drawn; POSITION moves the cloud along the floor, PITCH up and down, and
-// TEXTURE spreads it out and softens it. Freeze stops the picture.
+// TEXTURE spreads it out and softens it. The output level thins it: no
+// grains below -48 dB, all of them from -24 dB, so silence shows an empty
+// cloud. Freeze stops the picture.
 class OledScreen final : public oled::Screen {
 public:
     // `slot`: the rig slot that holds the Clouds engine.

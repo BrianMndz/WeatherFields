@@ -19,7 +19,8 @@ void Expect(bool condition, const char* what) {
     }
 }
 
-// Clouds in slot 0 at its defaults, with levels set by hand.
+// Clouds in slot 0 at its defaults, with levels set by hand: the output at
+// full scale, so every grain shows.
 class FakeReadout final : public wf::oled::RigReadout {
 public:
     FakeReadout() {
@@ -35,7 +36,7 @@ public:
 
     float values[Engine::kPlaybackMode + 1] = {};
     float input = 0.0f;
-    float output = 0.0f;
+    float output = 1.0f;
 
 private:
     Engine engine_;  // only for its table
@@ -155,6 +156,30 @@ void CheckPlacement() {
     Expect(lowY >= 0.0f && highY >= 0.0f && highY < lowY - 15.0f, "PITCH raises the cloud");
 }
 
+// The output level thins the cloud, keeping the same grains.
+void CheckActivity() {
+    FakeReadout rig;
+    auto litOver = [&rig](float output) {
+        rig.output = output;
+        wf::oled::Display display;
+        wf::clouds::OledScreen screen(0);
+        int lit = 0;
+        for (std::uint32_t ms = 0; ms < 4000; ms += 100) {
+            screen.Draw(display.U8g2(), ms, rig);
+            lit += CloudLit(display);
+        }
+        return lit;
+    };
+    const int silent = litOver(0.0f);
+    const int quiet = litOver(0.0001f);  // -80 dB
+    const int half = litOver(0.0158f);   // -36 dB
+    const int full = litOver(0.0631f);   // -24 dB
+    const int loud = litOver(1.0f);
+    Expect(silent == 0 && quiet == 0, "no grains in silence");
+    Expect(half > 0 && half < full, "fewer grains between -48 and -24 dB");
+    Expect(full == loud, "every grain from -24 dB");
+}
+
 // MIX's bar: frame from (17, 47) to (62, 54), fill inside it.
 void CheckBlendBars() {
     FakeReadout rig;
@@ -177,6 +202,7 @@ void CheckMeters() {
     FakeReadout rig;
     wf::oled::Display display;
     wf::clouds::OledScreen screen(0);
+    rig.output = 0.0f;
     screen.Draw(display.U8g2(), 0, rig);
     Expect(Lit(display, 119, 12, 121, 44) == 11 && Lit(display, 124, 12, 126, 44) == 11, "silence: dots only");
 
@@ -200,6 +226,7 @@ int main() {
     CheckFreeze();
     CheckDensity();
     CheckPlacement();
+    CheckActivity();
     CheckBlendBars();
     CheckMeters();
 

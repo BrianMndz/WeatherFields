@@ -40,6 +40,8 @@ constexpr int kBlendBarHeight = 8;
 
 // The cloud.
 constexpr int kMaxGrains = 28;
+constexpr float kSilentDb = -48.0f;  // output level that shows no grains
+constexpr float kFullDb = -24.0f;    // and every grain
 constexpr float kMeterFloorDb = -48.0f;
 
 const char* const kModeNames[] = {"GRANULAR", "STRETCH", "LOOP DELAY", "SPECTRAL"};
@@ -81,6 +83,7 @@ struct Grains {
     float position;
     float pitch;  // semitones
     float texture;
+    float activity;  // the share of grains shown, from the output level
 };
 
 // The module's grain overlap (granular_processor.cc): none from 0.47 to
@@ -110,6 +113,8 @@ void DrawCloud(u8g2_t* u8g2, const Grains& grains, std::uint32_t ms) {
 
     for (int i = 0; i < count; ++i) {
         const auto key = static_cast<std::uint32_t>(i) * 8u;
+        // A fixed draw per grain, so the same grains stay as the level moves.
+        if (grains.activity < 1.0f && Random(key + 5) >= grains.activity) continue;
         float rate = 1.0f / lifetime;
         float phase = static_cast<float>(i) / static_cast<float>(count);
         if (!regular) {
@@ -141,6 +146,12 @@ void DrawCloud(u8g2_t* u8g2, const Grains& grains, std::uint32_t ms) {
             u8g2_DrawPixel(u8g2, Px(column), Px(row));
         }
     }
+}
+
+// 0 at kSilentDb and below, 1 at kFullDb and above, linear in dB between.
+float Activity(float level) {
+    if (!(level > 0.0f)) return 0.0f;
+    return Unit((20.0f * std::log10(level) - kSilentDb) / (kFullDb - kSilentDb));
 }
 
 // Segments of two rows every three, from the bottom, for -48 to 0 dB; unlit
@@ -186,7 +197,8 @@ void OledScreen::Draw(u8g2_t* u8g2, std::uint32_t ms, const oled::RigReadout& ri
     u8g2_DrawHLine(u8g2, 0, kRuleY, oled::kWidth);
 
     const Grains grains{Unit(value(Engine::kDensity)), Unit(value(Engine::kSize)), Unit(value(Engine::kPosition)),
-                        std::max(-24.0f, std::min(value(Engine::kPitch), 24.0f)), Unit(value(Engine::kTexture))};
+                        std::max(-24.0f, std::min(value(Engine::kPitch), 24.0f)), Unit(value(Engine::kTexture)),
+                        Activity(rig.OutputLevel())};
     DrawCloud(u8g2, grains, cloudMs_);
     if (frozen) u8g2_DrawFrame(u8g2, kCloudX, kCloudY, kCloudWidth, Px(kFloorY - kCloudY));
     for (int x = kCloudX; x < kCloudX + kCloudWidth; x += 2) u8g2_DrawPixel(u8g2, Px(x), kFloorY);
