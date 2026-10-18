@@ -135,7 +135,7 @@ bool setup(BelaContext* context, void*) {
     guiLink->Start(context->projectName);
 
     // Without a panel, the board runs as before.
-    oledLink.Start(WF_OLED_I2C_BUS, WF_OLED_I2C_ADDRESS, WF_OLED_FPS);
+    oledLink.Start(published, wf::bela::AppScreen(), WF_OLED_I2C_BUS, WF_OLED_I2C_ADDRESS, WF_OLED_FPS);
 
     printf("WeatherFields: %s running at %.0f Hz, %u-frame callbacks; panel at http://bela.local/gui\n",
            rig->Name(), sampleRate, static_cast<unsigned int>(frames));

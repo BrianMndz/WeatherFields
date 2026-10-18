@@ -1,8 +1,7 @@
 #include "OledView.h"
 
 #include <iterator>
-
-#include "wf/oled/TestPattern.h"
+#include <utility>
 
 namespace wf {
 namespace desktop {
@@ -22,12 +21,24 @@ const juce::Colour kLit[] = {juce::Colour(0xff4fc3ff), juce::Colour(0xffe6f0ff),
 
 }  // namespace
 
-OledView::OledView()
-    : image_(juce::Image::RGB, oled::kWidth, oled::kHeight, true),
+float OledView::HostReadout::Value(std::size_t slot, ParamId id) const noexcept {
+    const std::size_t index = host_.FindParam(slot, id);
+    return index != AudioHost::kNoParam ? host_.PublishedValue(index) : 0.0f;
+}
+
+OledView::OledView(const AudioHost& host)
+    : readout_(host),
+      image_(juce::Image::RGB, oled::kWidth, oled::kHeight, true),
       startMs_(juce::Time::getMillisecondCounter()) {
     setSize(oled::kWidth * kDefaultScale + 2 * kMargin, oled::kHeight * kDefaultScale + 2 * kMargin);
     Render();
     startTimerHz(kFramesPerSecond);
+}
+
+void OledView::SetScreen(std::unique_ptr<oled::Screen> screen) {
+    screen_ = std::move(screen);
+    Render();
+    repaint();
 }
 
 void OledView::timerCallback() {
@@ -36,7 +47,8 @@ void OledView::timerCallback() {
 }
 
 void OledView::Render() {
-    oled::DrawTestPattern(display_.U8g2(), juce::Time::getMillisecondCounter() - startMs_);
+    oled::Screen& screen = screen_ != nullptr ? *screen_ : testPattern_;
+    screen.Draw(display_.U8g2(), juce::Time::getMillisecondCounter() - startMs_, readout_);
 
     const juce::Image::BitmapData pixels(image_, juce::Image::BitmapData::writeOnly);
     for (int y = 0; y < oled::kHeight; ++y) {
@@ -63,9 +75,10 @@ void OledView::mouseDown(const juce::MouseEvent&) {
     repaint();
 }
 
-OledWindow::OledWindow() : DocumentWindow("OLED", kBezel, juce::DocumentWindow::closeButton) {
+OledWindow::OledWindow(const AudioHost& host)
+    : DocumentWindow("OLED", kBezel, juce::DocumentWindow::closeButton), view_(new OledView(host)) {
     setUsingNativeTitleBar(true);
-    setContentOwned(new OledView(), true);
+    setContentOwned(view_, true);
     setResizable(true, false);
     setResizeLimits(oled::kWidth + 2 * kMargin, oled::kHeight + 2 * kMargin, 4096, 4096);
 }

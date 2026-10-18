@@ -3,6 +3,7 @@
 #include "AudioHost.h"
 #include "Clouds/CloudsPanel.h"
 #include "wf/clouds/Engine.h"
+#include "wf/clouds/OledScreen.h"
 
 namespace wf {
 namespace desktop {
@@ -19,8 +20,12 @@ std::unique_ptr<RigView> MakeCloudsView(AudioHost& host) {
     return std::make_unique<CloudsPanel>(host, 0);
 }
 
+std::unique_ptr<oled::Screen> MakeCloudsScreen() {
+    return std::make_unique<clouds::OledScreen>(0);
+}
+
 const RigEntry kRigs[] = {
-    {"Clouds", &Make<SoloRig<clouds::Engine>>, &MakeCloudsView},
+    {"Clouds", &Make<SoloRig<clouds::Engine>>, &MakeCloudsView, &MakeCloudsScreen},
 };
 
 }  // namespace

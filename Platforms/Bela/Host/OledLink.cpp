@@ -6,8 +6,6 @@
 #include <cstdio>
 #include <cstring>
 
-#include "wf/oled/TestPattern.h"
-
 namespace wf {
 namespace bela {
 
@@ -53,7 +51,24 @@ OledLink::OledLink() : display_(I2cPanel::Byte, I2cPanel::GpioAndDelay) {
     panel_.Attach(u8g2_GetU8x8(display_.U8g2()));
 }
 
-bool OledLink::Start(int bus, int address, int framesPerSecond) {
+float OledLink::PublishedReadout::Value(std::size_t slot, ParamId id) const noexcept {
+    for (std::size_t i = 0; i < published_.params.size(); ++i) {
+        const Published::Param& param = published_.params[i];
+        if (param.slot == slot && param.spec->id == id) return published_.values[i].load(std::memory_order_relaxed);
+    }
+    return 0.0f;
+}
+
+float OledLink::PublishedReadout::InputLevel() const noexcept {
+    return published_.inputLevel.load(std::memory_order_relaxed);
+}
+
+float OledLink::PublishedReadout::OutputLevel() const noexcept {
+    return published_.outputLevel.load(std::memory_order_relaxed);
+}
+
+bool OledLink::Start(const Published& published, oled::Screen* screen, int bus, int address,
+                     int framesPerSecond) {
     if (!panel_.Open(bus, address)) {
         std::fprintf(stderr, "OLED: cannot open I2C bus %d at 0x%02x: %s; running without it\n", bus, address,
                      std::strerror(panel_.TakeError()));
@@ -61,7 +76,10 @@ bool OledLink::Start(int bus, int address, int framesPerSecond) {
     }
     std::printf("OLED: I2C bus %d, address 0x%02x, up to %d frames a second\n", bus, address, framesPerSecond);
     running_ = true;
-    thread_ = std::thread([this, framesPerSecond] { Run(framesPerSecond); });
+    oled::Screen& shown = screen != nullptr ? *screen : testPattern_;
+    thread_ = std::thread([this, &published, &shown, framesPerSecond] {
+        Run(PublishedReadout(published), shown, framesPerSecond);
+    });
     return true;
 }
 
@@ -70,7 +88,7 @@ void OledLink::Stop() {
     if (thread_.joinable()) thread_.join();
 }
 
-void OledLink::Run(int framesPerSecond) {
+void OledLink::Run(const PublishedReadout& readout, oled::Screen& screen, int framesPerSecond) {
     u8g2_t* u8g2 = display_.U8g2();
     const Clock::duration period = std::chrono::duration_cast<Clock::duration>(
         std::chrono::microseconds(1000000 / std::max(1, framesPerSecond)));
@@ -98,7 +116,7 @@ void OledLink::Run(int framesPerSecond) {
 
         const Clock::time_point drawStart = Clock::now();
         const auto ms = std::chrono::duration_cast<std::chrono::milliseconds>(drawStart - start).count();
-        oled::DrawTestPattern(u8g2, static_cast<std::uint32_t>(ms));
+        screen.Draw(u8g2, static_cast<std::uint32_t>(ms), readout);
         const Clock::time_point sendStart = Clock::now();
         u8g2_SendBuffer(u8g2);
         const Clock::time_point sent = Clock::now();

@@ -9,18 +9,23 @@
 #include "wf/ControlInput.h"
 #include "wf/Params.h"
 #include "wf/Rig.h"
+#include "wf/oled/Screen.h"
 
 namespace wf {
 namespace bela {
 
 // The Bela host runs one rig in Bela's render(), as the desktop host runs one
 // in JUCE's callback: the browser panel's events first, then the published
-// parameter values, then Process(). An app is this host plus the one
-// function below, so the rig is chosen at link time (Platforms/Bela/Apps).
+// parameter values, then Process(). An app is this host plus the two
+// functions below, so the rig is chosen at link time (Platforms/Bela/Apps).
 // Besides the browser panel (GuiLink), the host drives the OLED (OledLink).
 
 // Provided by the app: the rig the board runs. Called once, in setup().
 Rig& AppRig();
+
+// Provided by the app: what the OLED shows for its rig, or null for the test
+// pattern. Called once, in setup(); only the OLED's thread draws it.
+oled::Screen* AppScreen();
 
 constexpr std::size_t kGuiInputCapacity = 256;
 using GuiInput = ControlInput<kGuiInputCapacity>;

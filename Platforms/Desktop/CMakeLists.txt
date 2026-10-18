@@ -3,9 +3,9 @@
 add_subdirectory(${PROJECT_SOURCE_DIR}/Modules/JUCE ${CMAKE_BINARY_DIR}/Modules/JUCE)
 
 # The desktop app: the host (AudioHost, RigPanel, MainComponent, the emulated
-# OLED in OledView) plus every rig in its menu with its own view, if it has
-# one (Rigs.cpp, Clouds/). The host becomes its own library when a second
-# desktop app needs it.
+# OLED in OledView) plus every rig in its menu with its own view and OLED
+# screen, if it has them (Rigs.cpp, Clouds/, Ui/). The host becomes its own
+# library when a second desktop app needs it.
 juce_add_gui_app(wf_desktop
     PRODUCT_NAME "WeatherFields"
     COMPANY_NAME "WeatherFields"
@@ -46,6 +46,7 @@ target_link_libraries(wf_desktop
     PRIVATE
         wf::core
         wf::clouds
+        wf::clouds_ui
         wf::oled
         juce::juce_audio_utils
         juce::juce_data_structures

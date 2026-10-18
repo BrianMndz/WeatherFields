@@ -30,6 +30,7 @@ private:
     void LoadRig(std::size_t index);
     void ShowAudioSettings();
     void ShowOled();
+    std::unique_ptr<oled::Screen> MakeScreen() const;
     void timerCallback() override;
     void changeListenerCallback(juce::ChangeBroadcaster* source) override;
 
@@ -50,8 +51,10 @@ private:
     // devices_, so the destructor deletes it first.
     juce::Component::SafePointer<juce::DialogWindow> audioDialog_;
 
-    // Made when first shown; closing it hides it.
+    // Made when first shown; closing it hides it. It shows the current rig's
+    // screen, made anew for each rig.
     std::unique_ptr<OledWindow> oledWindow_;
+    std::size_t rigIndex_ = 0;
 };
 
 }  // namespace desktop

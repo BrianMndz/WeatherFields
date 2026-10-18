@@ -87,6 +87,8 @@ void MainComponent::LoadRig(std::size_t index) {
     view_.reset();
     host_.SetRig(nullptr);
     host_.SetRig(rigs[index].make());
+    rigIndex_ = index;
+    if (oledWindow_ != nullptr) oledWindow_->View().SetScreen(MakeScreen());
 
     if (rigs[index].makeView != nullptr) {
         view_ = rigs[index].makeView(host_);
@@ -118,11 +120,19 @@ void MainComponent::ShowAudioSettings() {
 
 void MainComponent::ShowOled() {
     if (oledWindow_ == nullptr) {
-        oledWindow_ = std::make_unique<OledWindow>();
+        oledWindow_ = std::make_unique<OledWindow>(host_);
+        oledWindow_->View().SetScreen(MakeScreen());
         oledWindow_->centreAroundComponent(this, oledWindow_->getWidth(), oledWindow_->getHeight());
     }
     oledWindow_->setVisible(true);
     oledWindow_->toFront(true);
+}
+
+std::unique_ptr<oled::Screen> MainComponent::MakeScreen() const {
+    std::size_t rigCount = 0;
+    const RigEntry* rigs = Rigs(rigCount);
+    if (rigIndex_ >= rigCount || rigs[rigIndex_].makeScreen == nullptr) return nullptr;
+    return rigs[rigIndex_].makeScreen();
 }
 
 void MainComponent::changeListenerCallback(juce::ChangeBroadcaster*) {
