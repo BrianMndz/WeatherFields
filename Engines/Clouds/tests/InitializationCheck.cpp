@@ -2,18 +2,18 @@
 #include <cstdint>
 #include <iostream>
 
-#include "wf/clouds/Engine.h"
+#include "wf/clouds/Module.h"
 
 namespace {
 
-using clouds_engine::Engine;
-using clouds_engine::EngineMemory;
-using clouds_engine::InitStatus;
-using clouds_engine::MemoryRegion;
-using clouds_engine::kLargeMemoryBytes;
-using clouds_engine::kMemoryAlignment;
-using clouds_engine::kSmallMemoryBytes;
-using clouds_engine::Quality;
+using wf::clouds::Module;
+using wf::clouds::EngineMemory;
+using wf::clouds::InitStatus;
+using wf::clouds::MemoryRegion;
+using wf::clouds::kLargeMemoryBytes;
+using wf::clouds::kMemoryAlignment;
+using wf::clouds::kSmallMemoryBytes;
+using wf::clouds::Quality;
 
 constexpr std::uint32_t kTestSeed = 0x23u;
 
@@ -53,7 +53,7 @@ bool CheckStatus(const char* scenario, InitStatus actual, InitStatus expected) {
     return false;
 }
 
-bool CheckInitialized(const char* scenario, const Engine& engine, bool expected) {
+bool CheckInitialized(const char* scenario, const Module& engine, bool expected) {
     const bool actual = engine.IsInitialized();
     if (actual == expected) return true;
 
@@ -68,7 +68,7 @@ int main() {
     int failures = 0;
 
     {
-        Engine engine;
+        Module engine;
         const EngineMemory memory{
             MemoryRegion{nullptr, kLargeMemoryBytes},
             MemoryRegion{validSmallArena, sizeof(validSmallArena)},
@@ -79,7 +79,7 @@ int main() {
     }
 
     {
-        Engine engine;
+        Module engine;
         EngineMemory memory = ValidMemory();
         memory.large.sizeBytes = kLargeMemoryBytes - 1;
         failures += !CheckStatus("Incorrect large size", engine.Initialize(memory, Quality::Stereo16Bit32k,
@@ -88,7 +88,7 @@ int main() {
     }
 
     {
-        Engine engine;
+        Module engine;
         const EngineMemory memory{
             MemoryRegion{validLargeArena, sizeof(validLargeArena)},
             MemoryRegion{nullptr, kSmallMemoryBytes},
@@ -99,7 +99,7 @@ int main() {
     }
 
     {
-        Engine engine;
+        Module engine;
         EngineMemory memory = ValidMemory();
         memory.small.sizeBytes = kSmallMemoryBytes - 1;
         failures += !CheckStatus("Incorrect small size", engine.Initialize(memory, Quality::Stereo16Bit32k,
@@ -108,7 +108,7 @@ int main() {
     }
 
     {
-        Engine engine;
+        Module engine;
         const EngineMemory memory{
             MemoryRegion{misalignedLargeArena + 1, kLargeMemoryBytes},
             MemoryRegion{validSmallArena, sizeof(validSmallArena)},
@@ -119,7 +119,7 @@ int main() {
     }
 
     {
-        Engine engine;
+        Module engine;
         const EngineMemory memory{
             MemoryRegion{overlapArena, kLargeMemoryBytes},
             MemoryRegion{overlapArena + kMemoryAlignment, kSmallMemoryBytes},
@@ -130,7 +130,7 @@ int main() {
     }
 
     {
-        Engine engine;
+        Module engine;
         const EngineMemory memory = ValidMemory();
         failures += !CheckStatus("Separate valid regions",
                                  engine.Initialize(memory, Quality::Stereo16Bit32k, kTestSeed),
@@ -142,7 +142,7 @@ int main() {
     }
 
     {
-        Engine engine;
+        Module engine;
         EngineMemory invalidMemory = ValidMemory();
         invalidMemory.small.sizeBytes = kSmallMemoryBytes - 1;
 
@@ -159,7 +159,7 @@ int main() {
     }
 
     {
-        Engine engine;
+        Module engine;
         const Quality invalidQuality = static_cast<Quality>(999);
 
         failures += !CheckStatus("Invalid quality",
@@ -174,7 +174,7 @@ int main() {
     }
 
     {
-        Engine engine;
+        Module engine;
         failures += !CheckStatus("Mono 16-bit 32 kHz",
                                  engine.Initialize(ValidMemory(), Quality::Mono16Bit32k,
                                                    kTestSeed),
@@ -182,7 +182,7 @@ int main() {
     }
 
     {
-        Engine engine;
+        Module engine;
         failures += !CheckStatus("Stereo mu-law 16 kHz",
                                  engine.Initialize(ValidMemory(), Quality::StereoMuLaw16k,
                                                    kTestSeed),
@@ -190,7 +190,7 @@ int main() {
     }
 
     {
-        Engine engine;
+        Module engine;
         failures += !CheckStatus("Mono mu-law 16 kHz",
                                  engine.Initialize(ValidMemory(), Quality::MonoMuLaw16k,
                                                    kTestSeed),

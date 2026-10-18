@@ -1,4 +1,4 @@
-#include "wf/clouds/Engine.h"
+#include "wf/clouds/Module.h"
 
 #include <cassert>
 
@@ -11,8 +11,8 @@ namespace {
     };
 
     // Returns false for a value outside the enumeration.
-    bool ToSettings(clouds_engine::Quality quality, QualitySettings& settings) noexcept {
-        using clouds_engine::Quality;
+    bool ToSettings(wf::clouds::Quality quality, QualitySettings& settings) noexcept {
+        using wf::clouds::Quality;
         switch (quality) {
             case Quality::Stereo16Bit32k: settings = {2, false}; return true;
             case Quality::Mono16Bit32k: settings = {1, false}; return true;
@@ -23,20 +23,20 @@ namespace {
     }
 
     // Returns false for a value outside the enumeration.
-    bool ToProcessorMode(clouds_engine::PlaybackMode mode,
-                         clouds::PlaybackMode& processorMode) noexcept {
-        using clouds_engine::PlaybackMode;
+    bool ToProcessorMode(wf::clouds::PlaybackMode mode,
+                         ::clouds::PlaybackMode& processorMode) noexcept {
+        using wf::clouds::PlaybackMode;
         switch (mode) {
-            case PlaybackMode::Granular: processorMode = clouds::PLAYBACK_MODE_GRANULAR; return true;
-            case PlaybackMode::Stretch: processorMode = clouds::PLAYBACK_MODE_STRETCH; return true;
-            case PlaybackMode::LoopingDelay: processorMode = clouds::PLAYBACK_MODE_LOOPING_DELAY; return true;
-            case PlaybackMode::Spectral: processorMode = clouds::PLAYBACK_MODE_SPECTRAL; return true;
+            case PlaybackMode::Granular: processorMode = ::clouds::PLAYBACK_MODE_GRANULAR; return true;
+            case PlaybackMode::Stretch: processorMode = ::clouds::PLAYBACK_MODE_STRETCH; return true;
+            case PlaybackMode::LoopingDelay: processorMode = ::clouds::PLAYBACK_MODE_LOOPING_DELAY; return true;
+            case PlaybackMode::Spectral: processorMode = ::clouds::PLAYBACK_MODE_SPECTRAL; return true;
         }
         return false;
     }
 }
 
-clouds_engine::InitStatus clouds_engine::Engine::Initialize(
+wf::clouds::InitStatus wf::clouds::Module::Initialize(
     EngineMemory engineMemory, Quality quality, std::uint32_t randomSeed) noexcept {
     // Perform the status check in order
     if (initialized_) return InitStatus::AlreadyInitialized;
@@ -70,7 +70,7 @@ clouds_engine::InitStatus clouds_engine::Engine::Initialize(
     processor_.Init(engineMemory.large.data, engineMemory.large.sizeBytes,
                     engineMemory.small.data, engineMemory.small.sizeBytes);
 
-    processor_.set_playback_mode(clouds::PLAYBACK_MODE_GRANULAR);
+    processor_.set_playback_mode(::clouds::PLAYBACK_MODE_GRANULAR);
     processor_.set_num_channels(settings.numChannels);
     processor_.set_low_fidelity(settings.lowFidelity);
     quality_ = quality;
@@ -85,20 +85,20 @@ clouds_engine::InitStatus clouds_engine::Engine::Initialize(
     return InitStatus::Ok;
 }
 
-bool clouds_engine::Engine::IsInitialized() const noexcept {
+bool wf::clouds::Module::IsInitialized() const noexcept {
     return initialized_;
 }
 
-void clouds_engine::Engine::Service() noexcept {
+void wf::clouds::Module::Service() noexcept {
     if (!initialized_) {
-        assert(initialized_ && "Engine::Service called before initialization");
+        assert(initialized_ && "Module::Service called before initialization");
         return;
     }
 
     processor_.Prepare();
 }
 
-clouds_engine::QualityStatus clouds_engine::Engine::SetQuality(Quality quality) noexcept {
+wf::clouds::QualityStatus wf::clouds::Module::SetQuality(Quality quality) noexcept {
     if (!initialized_) return QualityStatus::NotInitialized;
 
     QualitySettings settings{};
@@ -112,14 +112,14 @@ clouds_engine::QualityStatus clouds_engine::Engine::SetQuality(Quality quality) 
     return QualityStatus::Ok;
 }
 
-clouds_engine::Quality clouds_engine::Engine::GetQuality() const noexcept {
+wf::clouds::Quality wf::clouds::Module::GetQuality() const noexcept {
     return quality_;
 }
 
-clouds_engine::PlaybackModeStatus clouds_engine::Engine::SetPlaybackMode(PlaybackMode mode) noexcept {
+wf::clouds::PlaybackModeStatus wf::clouds::Module::SetPlaybackMode(PlaybackMode mode) noexcept {
     if (!initialized_) return PlaybackModeStatus::NotInitialized;
 
-    clouds::PlaybackMode processorMode{};
+    ::clouds::PlaybackMode processorMode{};
     if (!ToProcessorMode(mode, processorMode)) return PlaybackModeStatus::InvalidPlaybackMode;
 
     // Prepare() compares the mode with the one it last prepared, so
@@ -129,17 +129,17 @@ clouds_engine::PlaybackModeStatus clouds_engine::Engine::SetPlaybackMode(Playbac
     return PlaybackModeStatus::Ok;
 }
 
-clouds_engine::PlaybackMode clouds_engine::Engine::GetPlaybackMode() const noexcept {
+wf::clouds::PlaybackMode wf::clouds::Module::GetPlaybackMode() const noexcept {
     return playbackMode_;
 }
 
-void clouds_engine::Engine::ProcessBlock(const AudioBlock& in,
+void wf::clouds::Module::ProcessBlock(const AudioBlock& in,
                                          AudioBlock& out,
                                          const ControlSnapshot& controls,
                                          BlockEvents events) noexcept {
     if (!initialized_) {
         out.fill(StereoFrame{});
-        assert(initialized_ && "Engine::ProcessBlock called before initialization");
+        assert(initialized_ && "Module::ProcessBlock called before initialization");
         return;
     }
 

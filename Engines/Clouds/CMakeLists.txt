@@ -3,7 +3,7 @@
 # memory, plus the block and sample-rate adapters for host callbacks.
 wf_add_rt_library(clouds
     SOURCES
-        src/Engine.cpp
+        src/Module.cpp
         src/BlockAdapter.cpp
         src/SampleRateAdapter.cpp
     LINK

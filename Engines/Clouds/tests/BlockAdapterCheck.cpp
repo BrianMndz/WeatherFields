@@ -9,17 +9,17 @@
 
 namespace {
 
-using clouds_engine::BlockAdapter;
-using clouds_engine::Engine;
-using clouds_engine::EngineMemory;
-using clouds_engine::InitStatus;
-using clouds_engine::MemoryRegion;
-using clouds_engine::PlaybackMode;
-using clouds_engine::PlaybackModeStatus;
-using clouds_engine::Quality;
-using clouds_engine::kLargeMemoryBytes;
-using clouds_engine::kMemoryAlignment;
-using clouds_engine::kSmallMemoryBytes;
+using wf::clouds::BlockAdapter;
+using wf::clouds::Module;
+using wf::clouds::EngineMemory;
+using wf::clouds::InitStatus;
+using wf::clouds::MemoryRegion;
+using wf::clouds::PlaybackMode;
+using wf::clouds::PlaybackModeStatus;
+using wf::clouds::Quality;
+using wf::clouds::kLargeMemoryBytes;
+using wf::clouds::kMemoryAlignment;
+using wf::clouds::kSmallMemoryBytes;
 
 constexpr std::size_t kFrameCount = 160;
 constexpr std::uint32_t kTestSeed = 0x23u;
@@ -56,7 +56,7 @@ PlanarBuffer Render(const PlanarBuffer& input,
               std::vector<float>(input.right.size()),
           };
 
-    Engine engine;
+    Module engine;
     const EngineMemory memory{
         MemoryRegion{largeArena, sizeof(largeArena)},
         MemoryRegion{smallArena, sizeof(smallArena)},
@@ -65,12 +65,12 @@ PlanarBuffer Render(const PlanarBuffer& input,
     const InitStatus status =
         engine.Initialize(memory, Quality::Stereo16Bit32k, kTestSeed);
     if (status != InitStatus::Ok) {
-        std::cerr << "Engine initialization failed\n";
+        std::cerr << "Module initialization failed\n";
         return output;
     }
 
     BlockAdapter adapter{engine};
-    const clouds_engine::ControlSnapshot controls{};
+    const wf::clouds::ControlSnapshot controls{};
     std::size_t offset = 0;
 
     for (const std::size_t chunkSize : chunkSizes) {
@@ -81,7 +81,7 @@ PlanarBuffer Render(const PlanarBuffer& input,
 
         adapter.Process(inputLeft, inputRight,
                         output.left.data() + offset, output.right.data() + offset,
-                        chunkSize, controls, clouds_engine::BlockEvents{});
+                        chunkSize, controls, wf::clouds::BlockEvents{});
         offset += chunkSize;
     }
 
@@ -96,14 +96,14 @@ PlanarBuffer Render(const PlanarBuffer& input,
 // A playback mode change silences the engine until Service(), so whether the
 // adapter calls it shows in the output.
 bool ResumesAfterModeChange(BlockAdapter::ServicePolicy policy) {
-    Engine engine;
+    Module engine;
     const EngineMemory memory{
         MemoryRegion{largeArena, sizeof(largeArena)},
         MemoryRegion{smallArena, sizeof(smallArena)},
     };
     if (engine.Initialize(memory, Quality::Stereo16Bit32k, kTestSeed) != InitStatus::Ok
         || engine.SetPlaybackMode(PlaybackMode::LoopingDelay) != PlaybackModeStatus::Ok) {
-        std::cerr << "Engine setup failed\n";
+        std::cerr << "Module setup failed\n";
         return false;
     }
 
@@ -115,8 +115,8 @@ bool ResumesAfterModeChange(BlockAdapter::ServicePolicy policy) {
     };
     adapter.Process(input.left.data(), input.right.data(),
                     output.left.data(), output.right.data(),
-                    kFrameCount, clouds_engine::ControlSnapshot{},
-                    clouds_engine::BlockEvents{});
+                    kFrameCount, wf::clouds::ControlSnapshot{},
+                    wf::clouds::BlockEvents{});
 
     for (std::size_t i = 0; i < kFrameCount; ++i) {
         if (output.left[i] != 0.0f || output.right[i] != 0.0f) return true;
@@ -131,14 +131,14 @@ std::vector<float> RenderSpectralClick(int clickCall) {
     constexpr std::size_t kCallFrames = 16;
     constexpr int kCalls = 1200;
 
-    Engine engine;
+    Module engine;
     const EngineMemory memory{
         MemoryRegion{largeArena, sizeof(largeArena)},
         MemoryRegion{smallArena, sizeof(smallArena)},
     };
     if (engine.Initialize(memory, Quality::Stereo16Bit32k, kTestSeed) != InitStatus::Ok
         || engine.SetPlaybackMode(PlaybackMode::Spectral) != PlaybackModeStatus::Ok) {
-        std::cerr << "Engine setup failed\n";
+        std::cerr << "Module setup failed\n";
         return {};
     }
 
@@ -146,7 +146,7 @@ std::vector<float> RenderSpectralClick(int clickCall) {
     std::vector<float> in(kCallFrames);
     std::vector<float> out(kCallFrames);
     std::vector<float> rendered;
-    clouds_engine::ControlSnapshot controls;
+    wf::clouds::ControlSnapshot controls;
     controls.dryWet = 1.0f;
 
     for (int call = 0; call < kCalls; ++call) {
@@ -157,7 +157,7 @@ std::vector<float> RenderSpectralClick(int clickCall) {
         const bool click = call == clickCall;
         controls.gate = click;
         adapter.Process(in.data(), in.data(), out.data(), out.data(), kCallFrames,
-                        controls, clouds_engine::BlockEvents{click});
+                        controls, wf::clouds::BlockEvents{click});
         rendered.insert(rendered.end(), out.begin(), out.end());
     }
     return rendered;

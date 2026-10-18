@@ -4,13 +4,13 @@
 
 // C++14 needs this definition if the constant is ever bound to a reference
 // (for example by std::min); C++17 makes static constexpr members inline.
-constexpr std::size_t clouds_engine::SampleRateAdapter::kOutputQueueCapacity;
+constexpr std::size_t wf::clouds::SampleRateAdapter::kOutputQueueCapacity;
 
-clouds_engine::SampleRateAdapter::SampleRateAdapter(BlockAdapter& blockAdapter) noexcept
+wf::clouds::SampleRateAdapter::SampleRateAdapter(BlockAdapter& blockAdapter) noexcept
     : blockAdapter_(blockAdapter) {
 }
 
-void clouds_engine::SampleRateAdapter::LinearResampler::Configure(
+void wf::clouds::SampleRateAdapter::LinearResampler::Configure(
     std::uint32_t inputRate, std::uint32_t outputRate) noexcept {
     assert(inputRate != 0);
     assert(outputRate != 0);
@@ -23,7 +23,7 @@ void clouds_engine::SampleRateAdapter::LinearResampler::Configure(
     nextOutputTimeNumerator_ = 0;
 }
 
-std::size_t clouds_engine::SampleRateAdapter::LinearResampler::Push(
+std::size_t wf::clouds::SampleRateAdapter::LinearResampler::Push(
     FloatStereoFrame inputFrame,
     std::array<FloatStereoFrame, 2>& outputFrames) noexcept {
     if (!hasPrevious_) {
@@ -61,14 +61,14 @@ std::size_t clouds_engine::SampleRateAdapter::LinearResampler::Push(
     return produced;
 }
 
-void clouds_engine::SampleRateAdapter::ClearOutputQueue() noexcept {
+void wf::clouds::SampleRateAdapter::ClearOutputQueue() noexcept {
     outputQueue_ = {};
     outputReadIndex_ = 0;
     outputWriteIndex_ = 0;
     outputCount_ = 0;
 }
 
-void clouds_engine::SampleRateAdapter::EnqueueOutput(FloatStereoFrame frame) noexcept {
+void wf::clouds::SampleRateAdapter::EnqueueOutput(FloatStereoFrame frame) noexcept {
     assert(outputCount_ < kOutputQueueCapacity);
     if (outputCount_ >= kOutputQueueCapacity) return;
 
@@ -77,8 +77,8 @@ void clouds_engine::SampleRateAdapter::EnqueueOutput(FloatStereoFrame frame) noe
     ++outputCount_;
 }
 
-clouds_engine::SampleRateAdapter::FloatStereoFrame
-clouds_engine::SampleRateAdapter::DequeueOutputOrSilence() noexcept {
+wf::clouds::SampleRateAdapter::FloatStereoFrame
+wf::clouds::SampleRateAdapter::DequeueOutputOrSilence() noexcept {
     if (outputCount_ == 0) return {};
 
     const FloatStereoFrame frame = outputQueue_[outputReadIndex_];
@@ -87,7 +87,7 @@ clouds_engine::SampleRateAdapter::DequeueOutputOrSilence() noexcept {
     return frame;
 }
 
-clouds_engine::SampleRateStatus clouds_engine::SampleRateAdapter::Configure(
+wf::clouds::SampleRateStatus wf::clouds::SampleRateAdapter::Configure(
     std::uint32_t externalSampleRate) noexcept {
     configured_ = false;
     externalSampleRate_ = 0;
@@ -110,7 +110,7 @@ clouds_engine::SampleRateStatus clouds_engine::SampleRateAdapter::Configure(
     return SampleRateStatus::Ok;
 }
 
-void clouds_engine::SampleRateAdapter::Process(
+void wf::clouds::SampleRateAdapter::Process(
     const float* inputLeft, const float* inputRight,
     float* outputLeft, float* outputRight,
     std::size_t frameCount, const ControlSnapshot& controls,
@@ -173,10 +173,10 @@ void clouds_engine::SampleRateAdapter::Process(
     }
 }
 
-bool clouds_engine::SampleRateAdapter::IsConfigured() const noexcept {
+bool wf::clouds::SampleRateAdapter::IsConfigured() const noexcept {
     return configured_;
 }
 
-std::uint32_t clouds_engine::SampleRateAdapter::ExternalSampleRateHz() const noexcept {
+std::uint32_t wf::clouds::SampleRateAdapter::ExternalSampleRateHz() const noexcept {
     return externalSampleRate_;
 }

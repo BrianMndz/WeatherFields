@@ -6,7 +6,8 @@
 
 #include "wf/clouds/BlockAdapter.h"
 
-namespace clouds_engine {
+namespace wf {
+namespace clouds {
 
     enum class SampleRateStatus {
         Ok,
@@ -17,16 +18,16 @@ namespace clouds_engine {
     public:
         explicit SampleRateAdapter(BlockAdapter& blockAdapter) noexcept;
 
-        CLOUDS_ENGINE_NODISCARD SampleRateStatus Configure(std::uint32_t externalSampleRate) noexcept;
+        WF_CLOUDS_NODISCARD SampleRateStatus Configure(std::uint32_t externalSampleRate) noexcept;
 
         void Process(const float* inputLeft, const float* inputRight,
                      float* outputLeft, float* outputRight,
                      std::size_t frameCount, const ControlSnapshot& controls,
                      BlockEvents events) noexcept;
 
-        CLOUDS_ENGINE_NODISCARD bool IsConfigured() const noexcept;
+        WF_CLOUDS_NODISCARD bool IsConfigured() const noexcept;
 
-        CLOUDS_ENGINE_NODISCARD std::uint32_t ExternalSampleRateHz() const noexcept;
+        WF_CLOUDS_NODISCARD std::uint32_t ExternalSampleRateHz() const noexcept;
 
         SampleRateAdapter(const SampleRateAdapter&) = delete;
         SampleRateAdapter& operator=(const SampleRateAdapter&) = delete;
@@ -48,7 +49,7 @@ namespace clouds_engine {
         public:
             void Configure(std::uint32_t inputRate, std::uint32_t outputRate) noexcept;
 
-            CLOUDS_ENGINE_NODISCARD std::size_t Push(FloatStereoFrame inputFrame,
+            WF_CLOUDS_NODISCARD std::size_t Push(FloatStereoFrame inputFrame,
                                 std::array<FloatStereoFrame, 2>& outputFrames) noexcept;
 
         private:
@@ -66,7 +67,7 @@ namespace clouds_engine {
         void ClearOutputQueue() noexcept;
         void EnqueueOutput(FloatStereoFrame frame) noexcept;
 
-        CLOUDS_ENGINE_NODISCARD FloatStereoFrame DequeueOutputOrSilence() noexcept;
+        WF_CLOUDS_NODISCARD FloatStereoFrame DequeueOutputOrSilence() noexcept;
 
         static constexpr std::size_t kOutputQueueCapacity = 4;
 
@@ -78,7 +79,8 @@ namespace clouds_engine {
         bool pendingTrigger_ = false;
     };
 
-}  // namespace clouds_engine
+}  // namespace clouds
+}  // namespace wf
 
 
 

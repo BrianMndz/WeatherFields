@@ -2,15 +2,16 @@
 
 #include <cstddef>
 
-#include "wf/clouds/Engine.h"
+#include "wf/clouds/Module.h"
 
-namespace clouds_engine {
+namespace wf {
+namespace clouds {
 
     class BlockAdapter {
     public:
         static constexpr std::size_t kLatencyFrames = kBlockFrames;
 
-        // Who calls Engine::Service(). AfterEachBlock calls it after every
+        // Who calls Module::Service(). AfterEachBlock calls it after every
         // engine block, on the thread that calls Process(), as the stretch
         // and spectral modes need. Manual leaves it to the host, for targets
         // whose audio deadline cannot absorb a spectral hop.
@@ -19,7 +20,7 @@ namespace clouds_engine {
             Manual,
         };
 
-        explicit BlockAdapter(Engine& engine,
+        explicit BlockAdapter(Module& engine,
                               ServicePolicy servicePolicy = ServicePolicy::AfterEachBlock) noexcept;
 
         void Process(const float* inputLeft, const float* inputRight,
@@ -36,7 +37,7 @@ namespace clouds_engine {
         BlockAdapter& operator=(BlockAdapter&&) = delete;
 
     private:
-        Engine& engine_;
+        Module& engine_;
         ServicePolicy servicePolicy_;
 
         AudioBlock inputBlock_{};
@@ -46,4 +47,5 @@ namespace clouds_engine {
         bool pendingTrigger_ = false;
     };
 
-} // namespace clouds_engine
+}  // namespace clouds
+}  // namespace wf

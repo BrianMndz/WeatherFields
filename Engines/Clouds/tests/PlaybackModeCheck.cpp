@@ -4,24 +4,24 @@
 #include <cstdint>
 #include <iostream>
 
-#include "wf/clouds/Engine.h"
+#include "wf/clouds/Module.h"
 
 namespace {
 
-using clouds_engine::AudioBlock;
-using clouds_engine::BlockEvents;
-using clouds_engine::ControlSnapshot;
-using clouds_engine::Engine;
-using clouds_engine::EngineMemory;
-using clouds_engine::InitStatus;
-using clouds_engine::MemoryRegion;
-using clouds_engine::PlaybackMode;
-using clouds_engine::PlaybackModeStatus;
-using clouds_engine::Quality;
-using clouds_engine::QualityStatus;
-using clouds_engine::kLargeMemoryBytes;
-using clouds_engine::kMemoryAlignment;
-using clouds_engine::kSmallMemoryBytes;
+using wf::clouds::AudioBlock;
+using wf::clouds::BlockEvents;
+using wf::clouds::ControlSnapshot;
+using wf::clouds::Module;
+using wf::clouds::EngineMemory;
+using wf::clouds::InitStatus;
+using wf::clouds::MemoryRegion;
+using wf::clouds::PlaybackMode;
+using wf::clouds::PlaybackModeStatus;
+using wf::clouds::Quality;
+using wf::clouds::QualityStatus;
+using wf::clouds::kLargeMemoryBytes;
+using wf::clouds::kMemoryAlignment;
+using wf::clouds::kSmallMemoryBytes;
 
 constexpr std::uint32_t kTestSeed = 0x23u;
 
@@ -83,7 +83,7 @@ struct Render {
 // magnitude. POSITION and SIZE read the newest audio: at their defaults,
 // grains trail the write head by half a buffer plus their own length, so
 // granular mode stays silent for up to 2 s after an erasing switch.
-int PeakOutput(Engine& engine, Render render) {
+int PeakOutput(Module& engine, Render render) {
     ControlSnapshot controls;
     controls.dryWet = 1.0f;
     controls.position = 0.0f;
@@ -111,13 +111,13 @@ int PeakOutput(Engine& engine, Render render) {
     return peak;
 }
 
-int PeakWithoutService(Engine& engine) {
+int PeakWithoutService(Module& engine) {
     Render render;
     render.service = false;
     return PeakOutput(engine, render);
 }
 
-bool Switch(Engine& engine, PlaybackMode mode) {
+bool Switch(Module& engine, PlaybackMode mode) {
     const bool ok = engine.SetPlaybackMode(mode) == PlaybackModeStatus::Ok;
     engine.Service();
     return ok;
@@ -125,7 +125,7 @@ bool Switch(Engine& engine, PlaybackMode mode) {
 
 // Records the tone in granular mode, switches to `via` and then to `to`, and
 // returns the peak of the frozen recording played with silent input.
-int FrozenPeakAfter(Engine& engine, PlaybackMode via, PlaybackMode to) {
+int FrozenPeakAfter(Module& engine, PlaybackMode via, PlaybackMode to) {
     bool ok = Switch(engine, PlaybackMode::Granular);
     PeakOutput(engine, Render{});
     ok = Switch(engine, via) && ok;
@@ -144,13 +144,13 @@ int main() {
     int failures = 0;
 
     {
-        Engine engine;
+        Module engine;
         failures += !CheckStatus("Before initialization",
                                  engine.SetPlaybackMode(PlaybackMode::Stretch),
                                  PlaybackModeStatus::NotInitialized);
     }
 
-    Engine engine;
+    Module engine;
     if (engine.Initialize(Memory(), Quality::Stereo16Bit32k, kTestSeed) != InitStatus::Ok) {
         std::cerr << "Initialization failed\n";
         return 1;

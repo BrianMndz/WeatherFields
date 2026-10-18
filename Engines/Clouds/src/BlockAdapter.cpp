@@ -23,13 +23,13 @@ namespace {
 
 // C++14 needs this definition if the constant is ever bound to a reference
 // (for example by std::min); C++17 makes static constexpr members inline.
-constexpr std::size_t clouds_engine::BlockAdapter::kLatencyFrames;
+constexpr std::size_t wf::clouds::BlockAdapter::kLatencyFrames;
 
-clouds_engine::BlockAdapter::BlockAdapter(Engine &engine, ServicePolicy servicePolicy) noexcept
+wf::clouds::BlockAdapter::BlockAdapter(Module &engine, ServicePolicy servicePolicy) noexcept
 : engine_(engine), servicePolicy_(servicePolicy) {
 }
 
-void clouds_engine::BlockAdapter::Process(const float *inputLeft, const float *inputRight, float *outputLeft,
+void wf::clouds::BlockAdapter::Process(const float *inputLeft, const float *inputRight, float *outputLeft,
     float *outputRight, std::size_t frameCount, const ControlSnapshot &controls, BlockEvents events) noexcept {
 
     if (frameCount == 0) return;
@@ -62,7 +62,7 @@ void clouds_engine::BlockAdapter::Process(const float *inputLeft, const float *i
     }
 }
 
-void clouds_engine::BlockAdapter::ResetStreamState() noexcept {
+void wf::clouds::BlockAdapter::ResetStreamState() noexcept {
     inputBlock_.fill(StereoFrame{});
     outputBlock_.fill(StereoFrame{});
     frameIndex_ = 0;

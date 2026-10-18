@@ -39,7 +39,7 @@ Daisy Seed3, alone or combined into one system.
 | JUCE | `Modules/JUCE` pinned at 9.0.4; configures from `Platforms/Desktop`. No app yet. |
 | Build skeleton | Top-level CMake, presets `dev` and `desktop`, `cmake/WeatherFields.cmake`, CTest. |
 | Core | Header-only `wf::core`, all compiling for the board with Clang 3.9: `wf/Dsp.h` (`IsFinite`, checked as built and under `-O3 -ffast-math`); `wf/Params.h` (`ParamId`, `ParamKind`, `ParamSpec`, `ParamTable`, `ConstrainValue`, which rejects non-finite values, and `IsValidParamTable`); `wf/Events.h` (8-byte POD `ControlEvent`); `wf/SpscQueue.h` (lock-free, power-of-two capacity, trivially copyable items; its own header because the recorder will use it too). The queue's two-thread check also runs clean under ThreadSanitizer, which flags a copy with relaxed ordering. `wf/Engine.h` (`wf::Engine`: `Name`, `Params`, `MemoryBytes`, `Prepare`, `Handle`, `Process`; `MemoryBlock`, `PrepareStatus`, `CheckMemory`, 16-byte `kMemoryAlignment`); `wf/Rig.h` (`ConstrainEvent`, `wf::Rig` whose non-virtual `Handle()` validates every event, `SoloRig<E>`), checked with a gain engine and compiled for the board with `-fno-exceptions -fno-rtti`. |
-| Engines/Clouds | `wf::clouds`: CloudsEngine's `Engine/` from `e7738d9`. Headers moved to `include/wf/clouds/` (includes `"wf/clouds/..."`); the code is unchanged and keeps namespace `clouds_engine` until the wrapper in step 2. Its five checks pass in Debug and Release; their only other change is `std::byte` → `unsigned char` for the test arenas, as checks compile as C++14. |
+| Engines/Clouds | `wf::clouds`: CloudsEngine's `Engine/` from `e7738d9`, now in namespace `wf::clouds` with its `Engine` class renamed `Module` (`Module.h`, `Module.cpp`; macro `WF_CLOUDS_NODISCARD`; MI code written `::clouds::`). Otherwise unchanged: the 16 render hashes still match and `check.sh` passes. Its five checks pass in Debug and Release; their only other change is `std::byte` → `unsigned char` for the test arenas, as checks compile as C++14. No `wf::Engine` wrapper yet. |
 | Tools/Render | `wf_render_clouds`: CloudsEngine's CLI (`e7738d9`), only its include and name changed. CTest `wf_render_clouds_references` renders all 16 quality × mode combinations and compares them with `clouds_references.sha256`, taken from CloudsEngine's `clouds_cli` built from `e7738d9`: byte-identical in Debug and Release, and equal to CloudsEngine's recorded table. The references hold for macOS arm64 with Apple Clang. |
 | Rigs, hosts | None yet. |
 | Manifests | `wf_add_manifest(<name> TARGET <t>)` writes `build/<preset>/manifests/<name>.txt` (sources, include dirs, defines of the target's link closure). One so far: `clouds` (`wf::clouds`, 13 translation units). |
@@ -47,10 +47,9 @@ Daisy Seed3, alone or combined into one system.
 
 ## Next actions
 
-1. **The Clouds wrapper** (handover section 10, step 2): the copied code
-   moves to namespace `wf::clouds`, its `Engine` class and file become
-   `Module` (`Module.h`), and the new `wf::clouds::Engine` implements
-   `wf::Engine` with its ParamTable: the nine controls, IN GAIN, freeze,
+1. **The Clouds wrapper** (handover section 10, step 2): the new
+   `wf::clouds::Engine` implements `wf::Engine` around `Module` with its
+   ParamTable: the nine controls, IN GAIN, freeze,
    trigger, quality and mode, pitch ±24 st. Checks: events reach the
    snapshot, clamping at the rig, and if it holds, a 32 kHz render
    byte-identical to `wf_render_clouds`.

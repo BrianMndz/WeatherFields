@@ -12,14 +12,15 @@
 // attribute; C++14 code on GCC and Clang (including Bela) gets the equivalent
 // extension, so ignored status values still produce a warning there.
 #if __cplusplus >= 201703L
-#define CLOUDS_ENGINE_NODISCARD [[nodiscard]]
+#define WF_CLOUDS_NODISCARD [[nodiscard]]
 #elif defined(__GNUC__)
-#define CLOUDS_ENGINE_NODISCARD __attribute__((warn_unused_result))
+#define WF_CLOUDS_NODISCARD __attribute__((warn_unused_result))
 #else
-#define CLOUDS_ENGINE_NODISCARD
+#define WF_CLOUDS_NODISCARD
 #endif
 
-namespace clouds_engine {
+namespace wf {
+namespace clouds {
 
     // Namespace-scope constexpr variables have internal linkage in C++14, so
     // each translation unit gets its own copy of these values.
@@ -111,11 +112,11 @@ namespace clouds_engine {
         InvalidPlaybackMode
     };
 
-    class Engine {
+    class Module {
     public:
-        Engine() = default;
+        Module() = default;
 
-        CLOUDS_ENGINE_NODISCARD InitStatus Initialize(EngineMemory engineMemory,
+        WF_CLOUDS_NODISCARD InitStatus Initialize(EngineMemory engineMemory,
                                                       Quality quality,
                                                       std::uint32_t randomSeed) noexcept;
 
@@ -136,32 +137,33 @@ namespace clouds_engine {
         // the engine outputs silence; that call then erases the recording
         // buffer and releases freeze, as on the module. A host that sends
         // freeze in every ControlSnapshot should release it too.
-        CLOUDS_ENGINE_NODISCARD QualityStatus SetQuality(Quality quality) noexcept;
-        CLOUDS_ENGINE_NODISCARD Quality GetQuality() const noexcept;
+        WF_CLOUDS_NODISCARD QualityStatus SetQuality(Quality quality) noexcept;
+        WF_CLOUDS_NODISCARD Quality GetQuality() const noexcept;
 
         // Requests another playback mode. Until the next Service() call the
         // engine outputs silence. Switches among granular, stretch and
         // looping delay keep the recording; a switch to or from spectral
         // erases it and releases freeze, as a quality change does.
-        CLOUDS_ENGINE_NODISCARD PlaybackModeStatus SetPlaybackMode(PlaybackMode mode) noexcept;
-        CLOUDS_ENGINE_NODISCARD PlaybackMode GetPlaybackMode() const noexcept;
+        WF_CLOUDS_NODISCARD PlaybackModeStatus SetPlaybackMode(PlaybackMode mode) noexcept;
+        WF_CLOUDS_NODISCARD PlaybackMode GetPlaybackMode() const noexcept;
 
-        CLOUDS_ENGINE_NODISCARD bool IsInitialized() const noexcept;
+        WF_CLOUDS_NODISCARD bool IsInitialized() const noexcept;
 
-        Engine(const Engine&) = delete;
-        Engine& operator=(const Engine&) = delete;
+        Module(const Module&) = delete;
+        Module& operator=(const Module&) = delete;
 
-        Engine(Engine&&) = delete;
-        Engine& operator=(Engine&&) = delete;
+        Module(Module&&) = delete;
+        Module& operator=(Module&&) = delete;
 
     private:
-        clouds::GranularProcessor processor_;
+        ::clouds::GranularProcessor processor_;
         bool initialized_ = false;
         Quality quality_ = Quality::Stereo16Bit32k;
         PlaybackMode playbackMode_ = PlaybackMode::Granular;
 
-        std::array<clouds::ShortFrame, kBlockFrames> inputFrames_{};
-        std::array<clouds::ShortFrame, kBlockFrames> outputFrames_{};
+        std::array<::clouds::ShortFrame, kBlockFrames> inputFrames_{};
+        std::array<::clouds::ShortFrame, kBlockFrames> outputFrames_{};
     };
 
-}  // namespace clouds_engine
+}  // namespace clouds
+}  // namespace wf

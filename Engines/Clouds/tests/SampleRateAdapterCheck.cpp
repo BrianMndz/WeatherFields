@@ -8,17 +8,17 @@
 
 namespace {
 
-using clouds_engine::BlockAdapter;
-using clouds_engine::Engine;
-using clouds_engine::EngineMemory;
-using clouds_engine::InitStatus;
-using clouds_engine::MemoryRegion;
-using clouds_engine::Quality;
-using clouds_engine::SampleRateAdapter;
-using clouds_engine::SampleRateStatus;
-using clouds_engine::kLargeMemoryBytes;
-using clouds_engine::kMemoryAlignment;
-using clouds_engine::kSmallMemoryBytes;
+using wf::clouds::BlockAdapter;
+using wf::clouds::Module;
+using wf::clouds::EngineMemory;
+using wf::clouds::InitStatus;
+using wf::clouds::MemoryRegion;
+using wf::clouds::Quality;
+using wf::clouds::SampleRateAdapter;
+using wf::clouds::SampleRateStatus;
+using wf::clouds::kLargeMemoryBytes;
+using wf::clouds::kMemoryAlignment;
+using wf::clouds::kSmallMemoryBytes;
 
 constexpr std::size_t kFrameCount = 2048;
 constexpr std::uint32_t kTestSeed = 0x23u;
@@ -76,13 +76,13 @@ std::vector<std::size_t> MakeIrregularChunks(std::size_t frameCount) {
     return chunks;
 }
 
-bool InitializeEngine(Engine& engine) {
+bool InitializeEngine(Module& engine) {
     if (engine.Initialize(ValidMemory(), Quality::Stereo16Bit32k, kTestSeed) ==
         InitStatus::Ok) {
         return true;
     }
 
-    std::cerr << "Engine initialization failed\n";
+    std::cerr << "Module initialization failed\n";
     return false;
 }
 
@@ -98,7 +98,7 @@ RenderResult Render(const PlanarBuffer& input, std::uint32_t sampleRate,
         false,
     };
 
-    Engine engine;
+    Module engine;
     if (!InitializeEngine(engine)) return result;
 
     BlockAdapter blockAdapter{engine};
@@ -108,7 +108,7 @@ RenderResult Render(const PlanarBuffer& input, std::uint32_t sampleRate,
         return result;
     }
 
-    const clouds_engine::ControlSnapshot controls{};
+    const wf::clouds::ControlSnapshot controls{};
     std::size_t offset = 0;
 
     for (const std::size_t chunkSize : chunkSizes) {
@@ -128,7 +128,7 @@ RenderResult Render(const PlanarBuffer& input, std::uint32_t sampleRate,
             inputLeft, inputRight,
             result.output.left.data() + offset,
             result.output.right.data() + offset,
-            chunkSize, controls, clouds_engine::BlockEvents{});
+            chunkSize, controls, wf::clouds::BlockEvents{});
         offset += chunkSize;
     }
 
@@ -198,7 +198,7 @@ int CheckRate(std::uint32_t sampleRate, const PlanarBuffer& input,
 }
 
 int CheckReconfiguration(const PlanarBuffer& input) {
-    Engine engine;
+    Module engine;
     if (!InitializeEngine(engine)) return 1;
 
     BlockAdapter blockAdapter{engine};
@@ -217,7 +217,7 @@ int CheckReconfiguration(const PlanarBuffer& input) {
     sampleRateAdapter.Process(
         input.left.data(), input.right.data(),
         discardedLeft.data(), discardedRight.data(), discardedLeft.size(),
-        clouds_engine::ControlSnapshot{}, clouds_engine::BlockEvents{true});
+        wf::clouds::ControlSnapshot{}, wf::clouds::BlockEvents{true});
 
     if (sampleRateAdapter.Configure(12345u) !=
             SampleRateStatus::UnsupportedExternalSampleRate ||
@@ -238,8 +238,8 @@ int CheckReconfiguration(const PlanarBuffer& input) {
     std::array<float, BlockAdapter::kLatencyFrames> outputRight{};
     sampleRateAdapter.Process(
         input.left.data(), input.right.data(), outputLeft.data(), outputRight.data(),
-        outputLeft.size(), clouds_engine::ControlSnapshot{},
-        clouds_engine::BlockEvents{});
+        outputLeft.size(), wf::clouds::ControlSnapshot{},
+        wf::clouds::BlockEvents{});
 
     for (std::size_t i = 0; i < outputLeft.size(); ++i) {
         if (outputLeft[i] != 0.0f || outputRight[i] != 0.0f) {

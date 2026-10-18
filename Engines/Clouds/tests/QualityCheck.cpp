@@ -4,22 +4,22 @@
 #include <cstdint>
 #include <iostream>
 
-#include "wf/clouds/Engine.h"
+#include "wf/clouds/Module.h"
 
 namespace {
 
-using clouds_engine::AudioBlock;
-using clouds_engine::BlockEvents;
-using clouds_engine::ControlSnapshot;
-using clouds_engine::Engine;
-using clouds_engine::EngineMemory;
-using clouds_engine::InitStatus;
-using clouds_engine::MemoryRegion;
-using clouds_engine::Quality;
-using clouds_engine::QualityStatus;
-using clouds_engine::kLargeMemoryBytes;
-using clouds_engine::kMemoryAlignment;
-using clouds_engine::kSmallMemoryBytes;
+using wf::clouds::AudioBlock;
+using wf::clouds::BlockEvents;
+using wf::clouds::ControlSnapshot;
+using wf::clouds::Module;
+using wf::clouds::EngineMemory;
+using wf::clouds::InitStatus;
+using wf::clouds::MemoryRegion;
+using wf::clouds::Quality;
+using wf::clouds::QualityStatus;
+using wf::clouds::kLargeMemoryBytes;
+using wf::clouds::kMemoryAlignment;
+using wf::clouds::kSmallMemoryBytes;
 
 constexpr std::uint32_t kTestSeed = 0x23u;
 constexpr int kBlocks = 64;
@@ -57,7 +57,7 @@ bool CheckStatus(const char* scenario, QualityStatus actual, QualityStatus expec
 
 // Processes kBlocks blocks of a 1 kHz tone, fully dry, and returns the
 // largest output sample magnitude.
-int PeakOutput(Engine& engine) {
+int PeakOutput(Module& engine) {
     ControlSnapshot controls;
     controls.dryWet = 0.0f;
     AudioBlock in{};
@@ -85,13 +85,13 @@ int main() {
     int failures = 0;
 
     {
-        Engine engine;
+        Module engine;
         failures += !CheckStatus("Before initialization",
                                  engine.SetQuality(Quality::Mono16Bit32k),
                                  QualityStatus::NotInitialized);
     }
 
-    Engine engine;
+    Module engine;
     if (engine.Initialize(Memory(), Quality::Stereo16Bit32k, kTestSeed) != InitStatus::Ok) {
         std::cerr << "Initialization failed\n";
         return 1;

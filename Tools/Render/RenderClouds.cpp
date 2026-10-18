@@ -10,15 +10,15 @@
 #include <chrono>
 #include <string>
 
-#include "wf/clouds/Engine.h"
+#include "wf/clouds/Module.h"
 
-alignas(clouds_engine::kMemoryAlignment)
-static std::byte largeArena[clouds_engine::kLargeMemoryBytes]{};
+alignas(wf::clouds::kMemoryAlignment)
+static std::byte largeArena[wf::clouds::kLargeMemoryBytes]{};
 
-alignas(clouds_engine::kMemoryAlignment)
-static std::byte smallArena[clouds_engine::kSmallMemoryBytes]{};
+alignas(wf::clouds::kMemoryAlignment)
+static std::byte smallArena[wf::clouds::kSmallMemoryBytes]{};
 
-static clouds_engine::EngineMemory engine_memory {
+static wf::clouds::EngineMemory engine_memory {
     {largeArena, sizeof(largeArena)},
     {smallArena, sizeof(smallArena)}
 };
@@ -37,9 +37,9 @@ static constexpr size_t kFourSecondsFrame = 128000;
 // Fills `frames` with a stereo sine pair: `freq_l` in the left channel and
 // `freq_r` in the right. Phase accumulators are kept in double and wrapped so
 // phase error does not drift over long renders.
-static std::vector<clouds_engine::StereoFrame> GenerateStereoSine(
+static std::vector<wf::clouds::StereoFrame> GenerateStereoSine(
     size_t num_frames, float freq_l, float freq_r, float amplitude) {
-    std::vector<clouds_engine::StereoFrame> frames(num_frames);
+    std::vector<wf::clouds::StereoFrame> frames(num_frames);
 
     const double two_pi = 2.0 * M_PI;
     const double increment_l = two_pi * freq_l / kSampleRate;
@@ -61,8 +61,8 @@ static std::vector<clouds_engine::StereoFrame> GenerateStereoSine(
     return frames;
 }
 
-static bool ParseQuality(const std::string& name, clouds_engine::Quality& quality) {
-    using clouds_engine::Quality;
+static bool ParseQuality(const std::string& name, wf::clouds::Quality& quality) {
+    using wf::clouds::Quality;
 
     if (name == "stereo16") quality = Quality::Stereo16Bit32k;
     else if (name == "mono16") quality = Quality::Mono16Bit32k;
@@ -73,8 +73,8 @@ static bool ParseQuality(const std::string& name, clouds_engine::Quality& qualit
     return true;
 }
 
-static bool ParsePlaybackMode(const std::string& name, clouds_engine::PlaybackMode& mode) {
-    using clouds_engine::PlaybackMode;
+static bool ParsePlaybackMode(const std::string& name, wf::clouds::PlaybackMode& mode) {
+    using wf::clouds::PlaybackMode;
 
     if (name == "granular") mode = PlaybackMode::Granular;
     else if (name == "stretch") mode = PlaybackMode::Stretch;
@@ -87,7 +87,7 @@ static bool ParsePlaybackMode(const std::string& name, clouds_engine::PlaybackMo
 
 // Minimal 16-bit PCM stereo WAV writer, so the render can be listened to.
 static bool WriteWav(const std::string& path,
-                     const std::vector<clouds_engine::StereoFrame>& frames) {
+                     const std::vector<wf::clouds::StereoFrame>& frames) {
     std::ofstream out(path, std::ios::binary);
     if (!out) {
         std::cerr << "Failed to open " << path << " for writing\n";
@@ -128,9 +128,9 @@ static bool WriteWav(const std::string& path,
     return out.good();
 }
 
-static int Init(clouds_engine::Engine &engine, const clouds_engine::Quality quality) {
+static int Init(wf::clouds::Module &engine, const wf::clouds::Quality quality) {
     auto err = engine.Initialize(engine_memory, quality, 0x23u);
-    if (err != clouds_engine::InitStatus::Ok) return 1;
+    if (err != wf::clouds::InitStatus::Ok) return 1;
 
     return 0;
 }
@@ -159,19 +159,19 @@ int main(int argc, char *argv[]) {
         }
     }
 
-    auto quality = clouds_engine::Quality::Stereo16Bit32k;
-    auto mode = clouds_engine::PlaybackMode::Granular;
+    auto quality = wf::clouds::Quality::Stereo16Bit32k;
+    auto mode = wf::clouds::PlaybackMode::Granular;
     if (!ParseQuality(qualityName, quality) || !ParsePlaybackMode(modeName, mode)) return Usage();
 
-    clouds_engine::Engine processor;
+    wf::clouds::Module processor;
     if (Init(processor, quality) != 0) return 1;
 
     // The engine starts in granular mode; another mode takes effect at the
     // next Service() call.
-    if (processor.SetPlaybackMode(mode) != clouds_engine::PlaybackModeStatus::Ok) return 1;
+    if (processor.SetPlaybackMode(mode) != wf::clouds::PlaybackModeStatus::Ok) return 1;
     processor.Service();
 
-    clouds_engine::ControlSnapshot controls{};
+    wf::clouds::ControlSnapshot controls{};
     controls.position = 0.5f;
     controls.size = 0.5f;
     controls.pitch = 0.0f;
@@ -195,9 +195,9 @@ int main(int argc, char *argv[]) {
         input[i].right = 0;
     }
 
-    std::vector<clouds_engine::StereoFrame> output(num_frames);
-    clouds_engine::AudioBlock inputBlock{};
-    clouds_engine::AudioBlock outputBlock{};
+    std::vector<wf::clouds::StereoFrame> output(num_frames);
+    wf::clouds::AudioBlock inputBlock{};
+    wf::clouds::AudioBlock outputBlock{};
 
     std::printf("Rendering %.1f s @ %.0f Hz — L %.0f Hz / R %.0f Hz, %s mode\n",
         kDurationSeconds, kSampleRate, kFrequencyLeft, kFrequencyRight, modeName.c_str());
@@ -205,7 +205,7 @@ int main(int argc, char *argv[]) {
     // Each block must finish within its own duration, 1 ms at 32 kHz, for a
     // host that services the engine on the audio thread.
     using Clock = std::chrono::steady_clock;
-    const double blockBudgetUs = 1e6 * clouds_engine::kBlockFrames / kSampleRate;
+    const double blockBudgetUs = 1e6 * wf::clouds::kBlockFrames / kSampleRate;
     double serviceMaxUs = 0.0;
     double serviceTotalUs = 0.0;
     double blockMaxUs = 0.0;
@@ -221,8 +221,8 @@ int main(int argc, char *argv[]) {
     bool twoSecChange = false;
     bool fourSecChange = false;
 
-    for (size_t i = 0; i < num_frames; i += clouds_engine::kBlockFrames) {
-        for (std::size_t j = 0; j < clouds_engine::kBlockFrames; ++j) {
+    for (size_t i = 0; i < num_frames; i += wf::clouds::kBlockFrames) {
+        for (std::size_t j = 0; j < wf::clouds::kBlockFrames; ++j) {
             inputBlock[j] = input[i + j];
         }
 
@@ -241,7 +241,7 @@ int main(int argc, char *argv[]) {
         }
 
         const auto blockStart = Clock::now();
-        processor.ProcessBlock(inputBlock, outputBlock, controls, clouds_engine::BlockEvents{});
+        processor.ProcessBlock(inputBlock, outputBlock, controls, wf::clouds::BlockEvents{});
         const auto serviceStart = Clock::now();
         processor.Service();
         const auto blockEnd = Clock::now();
@@ -254,12 +254,12 @@ int main(int argc, char *argv[]) {
             std::chrono::duration<double, std::micro>(blockEnd - blockStart).count());
         ++blockCount;
 
-        for (std::size_t j = 0; j < clouds_engine::kBlockFrames; ++j) {
+        for (std::size_t j = 0; j < wf::clouds::kBlockFrames; ++j) {
             output[i + j] = outputBlock[j];
         }
 
-        for (size_t frameWithinBlock = 0; frameWithinBlock < clouds_engine::kBlockFrames; ++frameWithinBlock) {
-            const clouds_engine::StereoFrame& frame = output[i + frameWithinBlock];
+        for (size_t frameWithinBlock = 0; frameWithinBlock < wf::clouds::kBlockFrames; ++frameWithinBlock) {
+            const wf::clouds::StereoFrame& frame = output[i + frameWithinBlock];
 
             leftMin = std::min(leftMin, frame.left);
             leftMax = std::max(leftMax, frame.left);
