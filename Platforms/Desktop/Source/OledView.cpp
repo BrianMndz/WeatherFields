@@ -9,9 +9,9 @@ namespace desktop {
 
 namespace {
 
-// A placeholder until the board's frame rate is measured: a full frame is
-// about 1 KB over I2C, so the bus clock bounds it.
-constexpr int kFramesPerSecond = 30;
+// The board's rate (WF_OLED_FPS in Platforms/Bela/Host/BelaHost.cpp), which
+// its I2C bus bounds: a full frame takes about 35.5 ms to send.
+constexpr int kFramesPerSecond = 25;
 constexpr int kDefaultScale = 4;
 constexpr int kMargin = 16;
 

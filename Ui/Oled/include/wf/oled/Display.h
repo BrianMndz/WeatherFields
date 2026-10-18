@@ -17,7 +17,9 @@ constexpr std::size_t kBufferBytes = kWidth * kHeight / 8;
 // that buffer; u8g2_SendBuffer() sends it through the byte and GPIO callbacks,
 // the display's only access to hardware. The default constructor gives a
 // display with no panel: hosts without one draw and read Buffer(), so the
-// same drawing code shows the same pixels everywhere.
+// same drawing code shows the same pixels everywhere. u8g2's SSD13xx I2C
+// layer keeps its transfer state in a static, so only one display in a
+// process may send at a time.
 class Display {
 public:
     Display() noexcept;

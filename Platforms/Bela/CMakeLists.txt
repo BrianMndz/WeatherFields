@@ -5,9 +5,13 @@
 set(WF_BELA_HOST_SOURCES
     Host/BelaHost.cpp
     Host/GuiLink.cpp
+    Host/I2cPanel.cpp
+    Host/OledLink.cpp
 )
+# What the host itself links, added to every app's targets.
+set(WF_BELA_HOST_TARGETS wf::oled)
 
-wf_add_manifest(bela_clouds TARGET wf::clouds
+wf_add_manifest(bela_clouds TARGET wf::clouds ${WF_BELA_HOST_TARGETS}
     SOURCES ${WF_BELA_HOST_SOURCES} Apps/Clouds/CloudsApp.cpp
     INCLUDES Host
     RESOURCES Apps/Clouds/sketch.js

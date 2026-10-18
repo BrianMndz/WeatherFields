@@ -10,6 +10,7 @@
 
 #include "BelaHost.h"
 #include "GuiLink.h"
+#include "OledLink.h"
 #include "wf/Dsp.h"
 #include "wf/Engine.h"
 
@@ -30,6 +31,20 @@ constexpr int kDefaultPeriodFrames = 32;
 // these rare, and the limit bounds a burst.
 constexpr std::size_t kMaxGuiEventsPerCallback = 32;
 
+// The OLED (an SH1106 128x64 module on Bela's I2C bus 1). Override with
+// deploy.sh's -D. A whole frame takes about 35.5 ms to send (mean; up to 51
+// ms seen, 2026-10-18), so the bus allows about 28 frames a second; 25 keeps
+// frames evenly paced and leaves the bus some room for other devices.
+#ifndef WF_OLED_I2C_BUS
+#define WF_OLED_I2C_BUS 1
+#endif
+#ifndef WF_OLED_I2C_ADDRESS
+#define WF_OLED_I2C_ADDRESS 0x3C
+#endif
+#ifndef WF_OLED_FPS
+#define WF_OLED_FPS 25
+#endif
+
 // Set up in setup(), before render() and the other threads start.
 wf::Rig* rig = nullptr;
 std::unique_ptr<unsigned char[]> memory;
@@ -38,6 +53,8 @@ wf::bela::GuiInput guiInput;
 // Made in setup() and never destroyed: its WebSocket server can still call
 // it while the process exits (GuiLink.h).
 wf::bela::GuiLink* guiLink = nullptr;
+// Its thread runs from setup() to cleanup(), which joins it.
+wf::bela::OledLink oledLink;
 
 // render() only.
 wf::PeakFollower inputMeter;
@@ -117,6 +134,9 @@ bool setup(BelaContext* context, void*) {
     guiLink = new wf::bela::GuiLink(*rig, published, guiInput);
     guiLink->Start(context->projectName);
 
+    // Without a panel, the board runs as before.
+    oledLink.Start(WF_OLED_I2C_BUS, WF_OLED_I2C_ADDRESS, WF_OLED_FPS);
+
     printf("WeatherFields: %s running at %.0f Hz, %u-frame callbacks; panel at http://bela.local/gui\n",
            rig->Name(), sampleRate, static_cast<unsigned int>(frames));
     return true;
@@ -143,7 +163,9 @@ void render(BelaContext* context, void*) {
 }
 
 // Audio has stopped. The rig and its memory have static storage and outlive
-// this; the panel's link closes, and its sender thread ends.
+// this; the panel's link closes, and its sender thread ends; the OLED goes
+// dark and its thread ends.
 void cleanup(BelaContext*, void*) {
     if (guiLink != nullptr) guiLink->Stop();
+    oledLink.Stop();
 }

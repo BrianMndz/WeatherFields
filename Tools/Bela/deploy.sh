@@ -151,12 +151,23 @@ rsync -ac --no-t --delete-after --out-format='  %n' \
     --exclude=/build --exclude="/$PROJECT_NAME" --exclude=/settings.json \
     "$STAGE_DIR/" "$BBB_ADDRESS:$BOARD_PROJECT_DIR/"
 
+# Make rebuilds only what changed, not what was compiled with other flags: a
+# new -D would be ignored by every unchanged file. The flags of the last
+# build are kept on the board; when they differ, everything is rebuilt.
+FLAGS_STAMP="$BOARD_PROJECT_DIR/build/wf-cppflags.txt"
+previous_flags=$(ssh "$BBB_ADDRESS" "cat '$FLAGS_STAMP' 2>/dev/null" || true)
+if [ $clean -eq 0 ] && [ "$previous_flags" != "$BOARD_CPPFLAGS" ]; then
+    echo "CPPFLAGS differ from the last build's ('${previous_flags:-unknown}'): rebuilding everything"
+    clean=1
+fi
+
 if [ $clean -eq 1 ]; then
     ssh "$BBB_ADDRESS" "make -C $BBB_BELA_HOME --no-print-directory PROJECT=$PROJECT_NAME projectclean"
 fi
 
 echo "Building on the board with CPPFLAGS='$BOARD_CPPFLAGS'..."
 ssh "$BBB_ADDRESS" "make -C $BBB_BELA_HOME --no-print-directory PROJECT=$PROJECT_NAME CPPFLAGS='$BOARD_CPPFLAGS'"
+printf '%s\n' "$BOARD_CPPFLAGS" | ssh "$BBB_ADDRESS" "mkdir -p '$BOARD_PROJECT_DIR/build' && cat > '$FLAGS_STAMP'"
 
 if [ $run -eq 1 ]; then
     echo "Running $PROJECT_NAME; Ctrl-C stops it..."

@@ -17,6 +17,7 @@ namespace bela {
 // in JUCE's callback: the browser panel's events first, then the published
 // parameter values, then Process(). An app is this host plus the one
 // function below, so the rig is chosen at link time (Platforms/Bela/Apps).
+// Besides the browser panel (GuiLink), the host drives the OLED (OledLink).
 
 // Provided by the app: the rig the board runs. Called once, in setup().
 Rig& AppRig();

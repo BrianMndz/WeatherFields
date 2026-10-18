@@ -63,10 +63,15 @@ Tools/Bela/deploy.sh --run         # the same, then run it; Ctrl-C stops it
 Tools/Bela/deploy.sh bela_clouds   # an app by its manifest name
 Tools/Bela/deploy.sh --stop        # stop whatever Bela program is running
 Tools/Bela/deploy.sh --clean       # full rebuild
+Tools/Bela/deploy.sh --run -DWF_OLED_FPS=20   # with a macro defined
 ```
 
+Make does not track compiler flags, so the board keeps the CPPFLAGS of the
+last build in `build/wf-cppflags.txt`; when a deploy's differ (a `-D` added,
+removed or changed), it rebuilds everything, as `--clean` does.
+
 An app is the Bela host plus a rig, declared in `Platforms/Bela/CMakeLists.txt`
-as a manifest (`wf_add_manifest(<app> TARGET <rig's libraries> SOURCES ...
+as a manifest (`wf_add_manifest(<app> TARGET <rig's libraries> ${WF_BELA_HOST_TARGETS} SOURCES ...
 INCLUDES ... RESOURCES ...)`). The board project is
 `/root/Bela/projects/<app>`. Its `build/` folder, program binary and the Bela
 IDE's `settings.json` are never deleted. The browser panel is at
