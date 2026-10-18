@@ -3,9 +3,9 @@
 Checks on the Mac whether the Bela build will compile, then builds and runs it
 on the board.
 
-> `deploy.sh` and `profile.sh` are still CloudsEngine's and stop with a message:
-> they are adapted with the Bela host, to stage a Bela app from its manifest.
-> Their sections below describe CloudsEngine's behaviour until then.
+> `profile.sh` is still CloudsEngine's and stops with a message: it is adapted
+> with the profiling step, to drive a rig. Its section below describes
+> CloudsEngine's behaviour until then.
 
 Nothing here builds code for the board on the Mac: the board still compiles,
 links and runs the project. `check.sh` runs the board's compiler version against
@@ -58,23 +58,31 @@ CMake targets, then checks each manifest's sources with that manifest's flags.
 ## Build and run on the board
 
 ```sh
-Tools/Bela/deploy.sh          # check, copy changed files, build on the board
-Tools/Bela/deploy.sh --run    # the same, then run it; Ctrl-C stops it
-Tools/Bela/deploy.sh --stop   # stop whatever Bela program is running
-Tools/Bela/deploy.sh --clean  # full rebuild
+Tools/Bela/deploy.sh               # check, copy changed files, build bela_clouds on the board
+Tools/Bela/deploy.sh --run         # the same, then run it; Ctrl-C stops it
+Tools/Bela/deploy.sh bela_clouds   # an app by its manifest name
+Tools/Bela/deploy.sh --stop        # stop whatever Bela program is running
+Tools/Bela/deploy.sh --clean       # full rebuild
 ```
 
-The board project is `/root/Bela/projects/CloudsEngine`. Its `build/` folder,
-program binary and the Bela IDE's `settings.json` are never deleted.
+An app is the Bela host plus a rig, declared in `Platforms/Bela/CMakeLists.txt`
+as a manifest (`wf_add_manifest(<app> TARGET <rig's libraries> SOURCES ...
+INCLUDES ... RESOURCES ...)`). The board project is
+`/root/Bela/projects/<app>`. Its `build/` folder, program binary and the Bela
+IDE's `settings.json` are never deleted. The browser panel is at
+`http://bela.local/gui` while the app runs.
 
-`deploy.sh` stages the project for Bela's Makefile, which compiles every `.cpp`
-and `.c` file under the project folder but tracks header dependencies only for
-files at its top level. So every compiled file is staged at the top level: the
-app's own files, copies of the engine sources, and one-line `dsp_*.cpp` wrappers
-that `#include` each CloudsDSP `.cc` file, which Bela would otherwise skip.
-Headers keep their include paths below the project folder, so the only extra
-flags the board needs are `-std=c++14 -DTEST=1`. Only files whose contents
-changed are copied, so the board rebuilds only what changed.
+`deploy.sh` first sets the board's clock (it has no battery, and make would
+otherwise see sources older than their objects), then stages the project for
+Bela's Makefile, which compiles every `.cpp` and `.c` file under the project
+folder but tracks header dependencies only for files at its top level. So
+every compiled file is staged at the top level, named after its path in the
+repository (`Engines_Clouds_src_Engine.cpp`), and MutableDSP's `.cc` files,
+which Bela would otherwise skip, through one-line `.cpp` wrappers that
+`#include` them. Headers keep their path below their include directory, so the
+only extra flags the board needs are `-std=c++14` and the manifest's defines
+(`-DTEST=1`). Resources such as `sketch.js` go to the top level. Only files
+whose contents changed are copied, so the board rebuilds only what changed.
 
 ## Measure the callback cost
 
@@ -141,7 +149,8 @@ something this check missed, add a `reject_*.cpp` sample for it.
 - `pull-board-headers.sh`: copies the board's headers, Xenomai flags and Bela
   Makefile, and prints the board's compiler versions.
 - `check.sh`: the check itself.
-- `deploy.sh`: check, stage, copy and build on the board, and optionally run.
+- `deploy.sh`: check, stage an app from its manifest, copy and build on the
+  board, and optionally run.
 - `profile.sh`: build the measurement program and run it at several block sizes.
 - `selftest/`: samples the toolchain must accept or reject.
 
@@ -153,4 +162,4 @@ something this check missed, add a `reject_*.cpp` sample for it.
 | `BBB_BELA_HOME` | `/root/Bela` | Bela's folder on the board |
 | `BELA_CHECKOUT` | unset | local Bela checkout to use before the board's headers are pulled |
 | `BELA_CXX_STD` | `c++14` | default for `--std` |
-| `BELA_PROJECT_NAME` | `CloudsEngine` | project folder name on the board |
+| `BELA_PROJECT_NAME` | the app's name | project folder name on the board |

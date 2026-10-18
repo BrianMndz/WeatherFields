@@ -3,13 +3,13 @@
 #include <atomic>
 #include <cstddef>
 #include <cstdint>
-#include <deque>
 #include <memory>
 #include <vector>
 
 #include <juce_audio_devices/juce_audio_devices.h>
 
 #include "wf/ControlInput.h"
+#include "wf/ControlOutbox.h"
 #include "wf/Dsp.h"
 #include "wf/Engine.h"
 #include "wf/Rig.h"
@@ -75,18 +75,18 @@ public:
     std::size_t FindParam(std::size_t slot, ParamId id) const noexcept;
 
     // Message thread. Sends a parameter's value (ignored for a Trigger) from
-    // the GUI, in the order sent. When the input is full, events wait in that
-    // order for FlushGui(). A new value for a parameter already waiting
-    // replaces it and moves to the back, so the order of the latest changes
-    // holds (quality, then freeze, stays so); each Trigger waits on its own,
-    // so no press is lost.
+    // the GUI, in the order sent; when the input is full, events wait for
+    // FlushGui() by wf::ControlOutbox's rules (only Continuous values
+    // coalesce).
     void SendFromGui(std::size_t index, float value);
 
     // Message thread, from a timer: sends what SendFromGui() could not.
     void FlushGui();
 
     // Message thread. Whether a value from SendFromGui() still waits.
-    bool IsPending(std::size_t index) const noexcept { return waitingCount_[index] != 0; }
+    bool IsPending(std::size_t index) const noexcept {
+        return outbox_.IsWaiting(static_cast<std::uint8_t>(params_[index].slot), params_[index].spec->id);
+    }
 
     // Message thread. The value the audio thread published for `index` after
     // its last callback's events.
@@ -114,12 +114,6 @@ public:
     void audioDeviceStopped() override;
 
 private:
-    struct Waiting {
-        std::size_t index;
-        float value;
-    };
-
-    bool TryPush(std::size_t index, float value);
     void Restore();
     void Publish() noexcept;
 
@@ -134,9 +128,8 @@ private:
     std::unique_ptr<Rig> rig_;
     std::vector<ParamRef> params_;
     std::unique_ptr<std::atomic<float>[]> published_;
-    std::deque<Waiting> waiting_;              // oldest first
-    std::vector<std::uint32_t> waitingCount_;  // entries in waiting_ per index
     ControlInput<kGuiInputCapacity> guiInput_;
+    ControlOutbox<kGuiInputCapacity> outbox_{guiInput_};
 
     // Set up in audioDeviceAboutToStart(), which never runs during a
     // callback; read by the audio thread.

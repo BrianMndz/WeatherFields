@@ -1,37 +1,37 @@
 #!/usr/bin/env bash
-# Builds the Bela app on the board. Stages Apps/Bela plus the engine and
-# CloudsDSP sources in a Bela project layout, copies only changed files to the
-# board, and runs Bela's own Makefile there with the project's flags.
+# Builds a Bela app on the board. Stages the app's manifest (CMake's list of
+# its sources, include directories, defines and resources) in a Bela project
+# layout, copies only changed files to the board, and runs Bela's own Makefile
+# there with the project's flags.
 #
-# Bela's Makefile derives dependency-file names from source base names, so it
-# notices header changes only for sources at the top of the project folder.
-# Every translation unit is therefore staged there: engine sources as copies,
-# CloudsDSP's .cc files (which Bela does not compile) through one-line .cpp
-# wrappers. Headers keep their include paths, so the project folder, which
-# Bela's Makefile already passes as -I, is the only include directory needed.
+# Bela's Makefile compiles every .cpp and .c file under the project folder,
+# but notices header changes only for those at its top level, since it
+# derives dependency-file names from base names. Every translation unit is
+# therefore staged at the top: .cpp files as copies named after their path in
+# the repository, MutableDSP's .cc files (which Bela does not compile) through
+# one-line .cpp wrappers. Headers keep their path below their include
+# directory, so the project folder, which Bela's Makefile already passes as
+# -I, is the only include directory needed. Resources, such as the browser
+# panel's sketch.js, go to the top level unchanged.
 set -euo pipefail
 source "$(dirname "$0")/common.sh"
 
-# Still CloudsEngine's script: it stages Apps/Bela and reads source lists that
-# no longer exist. It is adapted with the Bela host (PROJECT_GUIDE.md, next
-# actions), to stage a Bela app from its manifest.
-die "$(basename "$0") is not adapted to WeatherFields yet; it comes with the Bela host"
+DEFAULT_APP=bela_clouds
 
 usage() {
     cat <<EOF
-Usage: Tools/Bela/deploy.sh [options]
+Usage: Tools/Bela/deploy.sh [options] [app]
 
-Checks the sources locally, then builds the project on the board as
-$BBB_ADDRESS:$BBB_BELA_HOME/projects/${BELA_PROJECT_NAME:-CloudsEngine}.
+Checks the app's sources locally, then builds it on the board as
+$BBB_ADDRESS:$BBB_BELA_HOME/projects/<app>. The app is a manifest name
+(wf_add_manifest in Platforms/Bela/CMakeLists.txt); default: $DEFAULT_APP.
 
 Options:
-  --profile    build the callback cost measurement (-DCLOUDS_PROFILE=1, see
-               Apps/Bela/Profiler.h) as the separate project CloudsEngineProfile,
-               so its objects never mix with the normal build's
   --run        start the program after building; Ctrl-C stops it
   --stop       stop the program running on the board, then exit
   --clean      delete the board's build output first, forcing a full rebuild
   --no-check   skip the local Tools/Bela/check.sh step
+  -DNAME[=V]   define a macro for the build, locally and on the board
   -h, --help   show this help
 EOF
 }
@@ -39,10 +39,9 @@ EOF
 run=0
 clean=0
 local_check=1
-profile=0
+app=""
 while [ $# -gt 0 ]; do
     case $1 in
-        --profile) profile=1 ;;
         --run) run=1 ;;
         --stop)
             ssh "$BBB_ADDRESS" "make -C $BBB_BELA_HOME --no-print-directory QUIET=true stop"
@@ -50,77 +49,103 @@ while [ $# -gt 0 ]; do
             ;;
         --clean) clean=1 ;;
         --no-check) local_check=0 ;;
+        -D*) PROJECT_DEFINES+=("$1") ;;
         -h|--help) usage; exit 0 ;;
-        *) usage >&2; die "unknown option: $1" ;;
+        -*) usage >&2; die "unknown option: $1" ;;
+        *) [ -z "$app" ] || die "only one app at a time"; app=$1 ;;
     esac
     shift
 done
+app=${app:-$DEFAULT_APP}
 
-if [ $profile -eq 1 ]; then
-    PROJECT_DEFINES+=(-DCLOUDS_PROFILE=1)
-    PROJECT_NAME="${BELA_PROJECT_NAME:-CloudsEngineProfile}"
-else
-    PROJECT_NAME="${BELA_PROJECT_NAME:-CloudsEngine}"
-fi
+PROJECT_NAME="${BELA_PROJECT_NAME:-$app}"
 STAGE_DIR="$TOOLCHAIN_DIR/stage/$PROJECT_NAME"
 BOARD_PROJECT_DIR="$BBB_BELA_HOME/projects/$PROJECT_NAME"
-BOARD_CPPFLAGS="-std=$PROJECT_CXX_STD ${PROJECT_DEFINES[*]}"
 
+# The manifest follows the CMake files; check.sh configures before checking.
 if [ $local_check -eq 1 ]; then
-    if [ $profile -eq 1 ]; then
-        "$TOOLS_DIR/check.sh" -DCLOUDS_PROFILE=1
-    else
-        "$TOOLS_DIR/check.sh"
-    fi
+    "$TOOLS_DIR/check.sh" --manifest "$app" ${PROJECT_DEFINES[@]+"${PROJECT_DEFINES[@]}"}
     echo
+else
+    refresh_manifests
 fi
+require_manifest "$app"
+
+# The manifest's defines (TEST=1 for MutableDSP), then the command line's.
+board_defines=()
+while IFS= read -r define; do
+    board_defines+=("-D$define")
+done < <(manifest_values "$app" define)
+BOARD_CPPFLAGS="-std=$PROJECT_CXX_STD ${board_defines[*]} ${PROJECT_DEFINES[*]+${PROJECT_DEFINES[*]}}"
 
 echo "Staging $PROJECT_NAME..."
 rm -rf "$STAGE_DIR"
 mkdir -p "$STAGE_DIR"
 
-# Header-only filter: directories are traversed, empty ones pruned.
-copy_headers() {
-    rsync -a -m --include='*/' --include='*.h' --exclude='*' "$1/" "$2/"
+# Copies $1 to $2 below the stage, refusing to replace a different file:
+# two include directories must not provide the same header path.
+stage_file() {
+    local target="$STAGE_DIR/$2"
+    if [ -e "$target" ]; then
+        cmp -s "$1" "$target" || die "two files would both be staged as $2"
+        return 0
+    fi
+    mkdir -p "$(dirname "$target")"
+    cp "$1" "$target"
 }
 
-# Everything in the app folder, keeping its layout.
-rsync -a "$REPO_ROOT/Apps/Bela/" "$STAGE_DIR/"
-copy_headers "$REPO_ROOT/Engine/include" "$STAGE_DIR"
-for dir in clouds stmlib; do
-    mkdir -p "$STAGE_DIR/$dir"
-    copy_headers "$REPO_ROOT/Modules/CloudsDSP/$dir" "$STAGE_DIR/$dir"
-done
+# Headers by include path.
+includes=()
+while IFS= read -r dir; do
+    includes+=("$dir")
+    while IFS= read -r header; do
+        stage_file "$header" "${header#$dir/}"
+    done < <(find "$dir" -type f \( -name '*.h' -o -name '*.hpp' \) | sort)
+done < <(manifest_values "$app" include)
 
-stage_unit() {
-    [ ! -e "$STAGE_DIR/$1" ] || die "two sources would both be staged as $1"
+# The include directory holding $1, so .cc files keep their include path.
+include_relative() {
+    local dir
+    for dir in "${includes[@]}"; do
+        case $1 in
+            "$dir/"*) echo "${1#$dir/}"; return 0 ;;
+        esac
+    done
+    return 1
 }
 
 while IFS= read -r source; do
+    relative=${source#$REPO_ROOT/}
+    unit="$(echo "${relative%.*}" | tr '/' '_').cpp"
+    [ ! -e "$STAGE_DIR/$unit" ] || die "two sources would both be staged as $unit"
     case $source in
-        "$REPO_ROOT/Apps/Bela/"*)
-            ;;  # already staged with the app folder
-        "$REPO_ROOT/Modules/CloudsDSP/"*)
-            relative_path=${source#$REPO_ROOT/Modules/CloudsDSP/}
-            mkdir -p "$STAGE_DIR/$(dirname "$relative_path")"
-            cp "$source" "$STAGE_DIR/$relative_path"
-            unit="dsp_$(echo "${relative_path%.*}" | tr '/' '_').cpp"
-            stage_unit "$unit"
+        *.cc)
+            path=$(include_relative "$source") || die "$relative is in none of the manifest's include directories"
+            stage_file "$source" "$path"
             printf '// Generated by Tools/Bela/deploy.sh: Bela compiles only .cpp files.\n#include "%s"\n' \
-                "$relative_path" > "$STAGE_DIR/$unit"
+                "$path" > "$STAGE_DIR/$unit"
             ;;
-        *)
-            unit=$(basename "$source")
-            stage_unit "$unit"
+        *.cpp|*.c)
+            [ "${source##*.}" = c ] && unit="${unit%.cpp}.c"
             cp "$source" "$STAGE_DIR/$unit"
             ;;
+        *) die "cannot stage $relative" ;;
     esac
-done < <(bela_sources)
+done < <(manifest_values "$app" source)
+
+while IFS= read -r resource; do
+    stage_file "$resource" "$(basename "$resource")"
+done < <(manifest_values "$app" resource)
+
+# The board has no clock battery and boots in 2016 unless the Bela IDE sets
+# the time; make then sees sources older than their objects and rebuilds
+# nothing.
+ssh "$BBB_ADDRESS" "date -u -s @$(date +%s) >/dev/null"
 
 echo "Copying changed files to $BBB_ADDRESS:$BOARD_PROJECT_DIR..."
-# Checksums decide what changes and timestamps are not preserved, so only edited
-# files look newer than their objects on the board. The build output, the
-# program binary and the Bela IDE's settings.json are never deleted.
+# Checksums decide what changes and timestamps are not preserved, so only
+# edited files look newer than their objects on the board. The build output,
+# the program binary and the Bela IDE's settings.json are never deleted.
 ssh "$BBB_ADDRESS" "mkdir -p $BOARD_PROJECT_DIR"
 rsync -ac --no-t --delete-after --out-format='  %n' \
     --exclude=/build --exclude="/$PROJECT_NAME" --exclude=/settings.json \

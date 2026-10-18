@@ -13,6 +13,12 @@ namespace wf {
 // renumber one.
 using ParamId = std::uint16_t;
 
+// Setting a Continuous parameter is plain state: it has no other effect, so
+// only its latest value matters, and a host may drop intermediate values (a
+// GUI queue that overflows, later MIDI thinning). A change of any other kind
+// may act on the transition (a Clouds quality change erases the recording
+// and releases freeze; a Toggle pulse is a gate press), so hosts deliver
+// every one, in order.
 enum class ParamKind : std::uint8_t {
     Continuous,  // any value in [min, max]
     Choice,      // an index in [0, max]: min is 0, max and def are integers

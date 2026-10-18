@@ -34,8 +34,7 @@ void AudioHost::SetRig(std::unique_ptr<Rig> rig) {
         const ParamSpec& spec = *params_[i].spec;
         published_[i].store(spec.kind == ParamKind::Trigger ? 0.0f : spec.def, std::memory_order_relaxed);
     }
-    waiting_.clear();
-    waitingCount_.assign(params_.size(), 0);
+    outbox_.Clear();
     restoreValues_ = false;
 
     devices_.addAudioCallback(this);  // prepares the rig, if a device is open
@@ -50,44 +49,22 @@ std::size_t AudioHost::FindParam(std::size_t slot, ParamId id) const noexcept {
 
 void AudioHost::SendFromGui(std::size_t index, float value) {
     if (index >= params_.size()) return;
-    if (params_[index].spec->kind != ParamKind::Trigger && waitingCount_[index] != 0) {
-        for (auto it = waiting_.begin(); it != waiting_.end(); ++it) {
-            if (it->index == index) {
-                waiting_.erase(it);
-                --waitingCount_[index];
-                break;
-            }
-        }
-    }
-    waiting_.push_back({index, value});
-    ++waitingCount_[index];
-    FlushGui();
+    const ParamRef& param = params_[index];
+    const bool trigger = param.spec->kind == ParamKind::Trigger;
+    outbox_.Send(ControlEvent{trigger ? ControlEvent::Type::Trigger : ControlEvent::Type::Param,
+                              static_cast<std::uint8_t>(param.slot), param.spec->id, trigger ? 1.0f : value},
+                 param.spec->kind);
 }
 
 void AudioHost::FlushGui() {
-    while (!waiting_.empty()) {
-        const Waiting& next = waiting_.front();
-        if (!TryPush(next.index, next.value)) return;  // full: the timer retries
-        --waitingCount_[next.index];
-        waiting_.pop_front();
-    }
+    outbox_.Flush();
 }
 
 float AudioHost::LatestValue(std::size_t index) const noexcept {
-    if (waitingCount_[index] != 0) {
-        for (auto it = waiting_.rbegin(); it != waiting_.rend(); ++it) {
-            if (it->index == index) return it->value;
-        }
-    }
-    return PublishedValue(index);
-}
-
-bool AudioHost::TryPush(std::size_t index, float value) {
     const ParamRef& param = params_[index];
-    const bool trigger = param.spec->kind == ParamKind::Trigger;
-    return guiInput_.Push(ControlEvent{trigger ? ControlEvent::Type::Trigger : ControlEvent::Type::Param,
-                                       static_cast<std::uint8_t>(param.slot), param.spec->id,
-                                       trigger ? 1.0f : value});
+    float value = 0.0f;
+    if (outbox_.LatestWaiting(static_cast<std::uint8_t>(param.slot), param.spec->id, value)) return value;
+    return PublishedValue(index);
 }
 
 AudioHost::Status AudioHost::GetStatus() const noexcept {

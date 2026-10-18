@@ -22,6 +22,8 @@ add_subdirectory(Modules/MutableDSP EXCLUDE_FROM_ALL SYSTEM)
 add_subdirectory(Core)
 add_subdirectory(Engines)
 add_subdirectory(Tools)
+# Builds nothing here: Bela apps build on the board; this lists their files.
+add_subdirectory(Platforms/Bela)
 
 if(WF_BUILD_DESKTOP)
     add_subdirectory(Platforms/Desktop)

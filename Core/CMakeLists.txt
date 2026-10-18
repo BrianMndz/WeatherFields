@@ -34,6 +34,11 @@ wf_add_check(wf_core_control_input_check
     LINK wf::core
 )
 
+wf_add_check(wf_core_control_outbox_check
+    SOURCES tests/ControlOutboxCheck.cpp
+    LINK wf::core
+)
+
 find_package(Threads REQUIRED)
 wf_add_check(wf_core_spsc_queue_check
     SOURCES tests/SpscQueueCheck.cpp
