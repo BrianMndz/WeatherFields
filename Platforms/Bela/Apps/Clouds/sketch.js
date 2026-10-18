@@ -167,6 +167,14 @@ const kLongPressMilliseconds = 1000;
 const kVeryLongPressMilliseconds = 4000;
 const kLedTimeoutMilliseconds = 3000;
 
+// While the LEDs show the quality or the playback mode, the board's OLED
+// shows that selection too (wf-focus). The page repeats it this often, as
+// the board forgets a focus 2.5 s after the last one it heard. The board
+// keeps one page's focus: the page that last selected something; this id,
+// random per page, names it.
+const kFocusRepeatMilliseconds = 1000;
+const kPageId = 1 + Math.floor(Math.random() * 1e9);
+
 // The board sends updates about 30 times a second; without one for this
 // long, it has stopped, and the meter goes dark.
 const kMeterTimeoutMilliseconds = 250;
@@ -209,6 +217,8 @@ let levelTime = 0;        // when they arrived
 // playback mode, pulsing orange).
 let ledMode = 'meter';
 let lastLedActivity = 0;
+let sentFocus = null;     // the parameter id last sent as the focus, or null for none
+let focusSentAt = 0;
 
 //==============================================================================
 // p5.js entry points
@@ -254,6 +264,7 @@ function draw() {
     for (const button of [blendButton, saveButton, trigButton])
         drawPushButton(ctx, button);
     updateLedMode();
+    sendFocus();
     ledLights().forEach(([red, green], i) =>
         drawLed(ctx, { x: layout.ledX[i], y: layout.ledY, r: layout.ledRadius }, red, green));
     drawFooter(ctx);
@@ -275,6 +286,23 @@ function sendHello() {
     sendChanges();
     helloId = 1 + Math.floor(Math.random() * 1e9);
     Bela.control.send({ event: 'wf-hello', id: helloId });
+}
+
+// Tells the board what the LEDs present for selection when it changes, and
+// repeats a focus while it lasts, marked as a repeat so it never takes the
+// focus from a page that selected since. A message sent before the socket
+// opens is dropped; the repeat makes up for it, as the board takes a repeat
+// when no page holds the focus.
+function sendFocus() {
+    const id = ledMode === 'quality' ? kParam.quality : ledMode === 'mode' ? kParam.playbackMode : null;
+    const now = performance.now();
+    if (id === sentFocus && (id === null || now - focusSentAt < kFocusRepeatMilliseconds))
+        return;
+    Bela.control.send(id === null
+        ? { event: 'wf-focus', page: kPageId }
+        : { event: 'wf-focus', page: kPageId, slot: kSlot, id: id, repeat: id === sentFocus });
+    sentFocus = id;
+    focusSentAt = now;
 }
 
 function recentlyEdited(holder) {

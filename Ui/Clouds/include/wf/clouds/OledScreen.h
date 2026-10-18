@@ -30,8 +30,11 @@ namespace clouds {
 // which the screen shows no number for, take the header: name and value,
 // the rule under it a bar. Quality or mode take the whole screen, every
 // option listed and the current one reversed, noting when the change erased
-// the recording. A newer change replaces the popup. The BLEND values,
-// freeze, TRIG and its gate open none: the screen already shows them.
+// the recording; they also show for as long as the view presents them
+// (RigReadout::ViewFocus(): the panel's quality or mode display after B is
+// held), changed or not. A newer change replaces the popup. The BLEND
+// values, freeze, TRIG and its gate open none: the screen already shows
+// them.
 class OledScreen final : public oled::Screen {
 public:
     // Parameters watched for changes: every wf::clouds::Engine ID.
@@ -49,8 +52,9 @@ private:
     std::uint32_t cloudMs_ = 0;  // the cloud's own time, which freeze stops
     float shown_[kParamCount] = {};  // the values the last frame drew
     int popup_ = -1;                 // the parameter in a popup, or -1
-    std::uint32_t popupStartMs_ = 0;
-    bool popupErased_ = false;  // its change erased the recording
+    int changed_ = -1;               // the last changed parameter, until no popup shows
+    std::uint32_t changedMs_ = 0;
+    bool erased_ = false;  // that change erased the recording
 };
 
 }  // namespace clouds

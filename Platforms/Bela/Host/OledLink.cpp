@@ -67,6 +67,17 @@ float OledLink::PublishedReadout::OutputLevel() const noexcept {
     return published_.outputLevel.load(std::memory_order_relaxed);
 }
 
+// The browser panel's focus, unless it lapsed.
+oled::RigReadout::Focus OledLink::PublishedReadout::ViewFocus() const noexcept {
+    const std::int32_t index = published_.focus.load(std::memory_order_relaxed);
+    if (index < 0 || static_cast<std::size_t>(index) >= published_.params.size()) return Focus{false, 0, 0};
+    if (FocusClockMs() - published_.focusMs.load(std::memory_order_relaxed) > kFocusLifetimeMs) {
+        return Focus{false, 0, 0};
+    }
+    const Published::Param& param = published_.params[static_cast<std::size_t>(index)];
+    return Focus{true, param.slot, param.spec->id};
+}
+
 bool OledLink::Start(const Published& published, oled::Screen* screen, int bus, int address,
                      int framesPerSecond) {
     if (!panel_.Open(bus, address)) {

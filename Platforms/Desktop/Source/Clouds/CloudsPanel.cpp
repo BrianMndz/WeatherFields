@@ -432,6 +432,7 @@ CloudsPanel::CloudsPanel(AudioHost& host, std::size_t slot) : host_(host), slot_
 
 CloudsPanel::~CloudsPanel() {
     stopTimer();
+    host_.SetViewFocus(AudioHost::kNoParam);
     // A button destroyed while held reports no state change, so a TRIG held
     // while the panel goes would leave the gate high.
     if (gate_) Send(Engine::kGate, 0.0f);
@@ -545,8 +546,12 @@ void CloudsPanel::ShowLeds(LedMode mode) {
 }
 
 // Quality and mode show what the engine runs, so a selection appears once
-// the audio thread has applied it.
+// the audio thread has applied it. While they show, the OLED shows the same
+// selection (AudioHost::SetViewFocus()).
 void CloudsPanel::UpdateLeds() {
+    host_.SetViewFocus(ledMode_ == LedMode::Quality        ? indices_[Engine::kQuality]
+                       : ledMode_ == LedMode::PlaybackMode ? indices_[Engine::kPlaybackMode]
+                                                           : AudioHost::kNoParam);
     switch (ledMode_) {
         case LedMode::Meter: {
             // As the module meters: the input after IN GAIN, or the output

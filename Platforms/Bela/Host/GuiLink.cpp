@@ -95,6 +95,8 @@ bool GuiLink::OnMessage(JSONObject& root) {
         return true;
     }
 
+    if (name == L"wf-focus") return OnFocus(root);
+
     const bool trigger = name == L"wf-trigger";
     if (!trigger && name != L"wf-param") return true;
 
@@ -122,6 +124,41 @@ bool GuiLink::OnMessage(JSONObject& root) {
     outbox_.Send(ControlEvent{trigger ? ControlEvent::Type::Trigger : ControlEvent::Type::Param,
                               static_cast<std::uint8_t>(slot), static_cast<ParamId>(id), value},
                  spec->kind);
+    return true;
+}
+
+// On the library's WebSocket thread, as OnMessage(). A message naming no
+// page, or setting a parameter the rig lacks, is ignored.
+bool GuiLink::OnFocus(const JSONObject& root) {
+    const JSONValue* page = Find(root, L"page");
+    if (page == nullptr || !page->IsNumber()) return true;
+    const bool clear = Find(root, L"slot") == nullptr && Find(root, L"id") == nullptr;
+    unsigned int slot = 0;
+    unsigned int id = 0;
+    if (!clear && (!FindIndex(root, L"slot", 255.0, slot) || !FindIndex(root, L"id", 65535.0, id))) return true;
+    const JSONValue* repeat = Find(root, L"repeat");
+    const bool repeated = repeat != nullptr && repeat->IsBool() && repeat->AsBool();
+
+    std::lock_guard<std::mutex> lock(mutex_);
+    if (!open_) return true;
+    const std::uint32_t now = FocusClockMs();
+    const bool held = published_.focus.load(std::memory_order_relaxed) >= 0 &&
+                      now - published_.focusMs.load(std::memory_order_relaxed) <= kFocusLifetimeMs;
+    const bool owner = held && page->AsNumber() == focusOwner_;
+    if (clear) {
+        if (owner) published_.focus.store(-1, std::memory_order_relaxed);
+        return true;
+    }
+    if (repeated && held && !owner) return true;  // another page's focus stands
+
+    for (std::size_t i = 0; i < published_.params.size(); ++i) {
+        if (published_.params[i].slot == slot && published_.params[i].spec->id == id) {
+            focusOwner_ = page->AsNumber();
+            published_.focus.store(static_cast<std::int32_t>(i), std::memory_order_relaxed);
+            published_.focusMs.store(now, std::memory_order_relaxed);
+            break;
+        }
+    }
     return true;
 }
 

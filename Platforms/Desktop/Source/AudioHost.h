@@ -98,6 +98,12 @@ public:
     // what the next GUI action should build on (the next quality, say).
     float LatestValue(std::size_t index) const noexcept;
 
+    // Message thread. The parameter the rig's view presents for selection
+    // (the Clouds panel's quality and mode displays), which the OLED screen
+    // shows too; kNoParam for none. A rig swap clears it.
+    void SetViewFocus(std::size_t index) noexcept { viewFocus_ = index < params_.size() ? index : kNoParam; }
+    std::size_t ViewFocus() const noexcept { return viewFocus_; }
+
     // Any thread. The levels of the rig's input and output, as the Clouds
     // module's meter measures them (wf::PeakFollower); 0 while stopped.
     float InputLevel() const noexcept { return inputLevel_.load(std::memory_order_relaxed); }
@@ -128,6 +134,7 @@ private:
     std::unique_ptr<Rig> rig_;
     std::vector<ParamRef> params_;
     std::unique_ptr<std::atomic<float>[]> published_;
+    std::size_t viewFocus_ = kNoParam;
     ControlInput<kGuiInputCapacity> guiInput_;
     ControlOutbox<kGuiInputCapacity> outbox_{guiInput_};
 

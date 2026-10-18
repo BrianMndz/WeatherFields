@@ -35,6 +35,7 @@ void AudioHost::SetRig(std::unique_ptr<Rig> rig) {
         published_[i].store(spec.kind == ParamKind::Trigger ? 0.0f : spec.def, std::memory_order_relaxed);
     }
     outbox_.Clear();
+    viewFocus_ = kNoParam;
     restoreValues_ = false;
 
     devices_.addAudioCallback(this);  // prepares the rig, if a device is open

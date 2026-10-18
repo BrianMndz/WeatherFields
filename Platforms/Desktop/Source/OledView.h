@@ -40,6 +40,7 @@ private:
         float Value(std::size_t slot, ParamId id) const noexcept override;
         float InputLevel() const noexcept override { return host_.InputLevel(); }
         float OutputLevel() const noexcept override { return host_.OutputLevel(); }
+        Focus ViewFocus() const noexcept override;
 
     private:
         const AudioHost& host_;

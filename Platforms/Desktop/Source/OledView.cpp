@@ -26,6 +26,13 @@ float OledView::HostReadout::Value(std::size_t slot, ParamId id) const noexcept 
     return index != AudioHost::kNoParam ? host_.PublishedValue(index) : 0.0f;
 }
 
+oled::RigReadout::Focus OledView::HostReadout::ViewFocus() const noexcept {
+    const std::size_t index = host_.ViewFocus();
+    if (index == AudioHost::kNoParam) return Focus{false, 0, 0};
+    const AudioHost::ParamRef& param = host_.Params()[index];
+    return Focus{true, param.slot, param.spec->id};
+}
+
 OledView::OledView(const AudioHost& host)
     : readout_(host),
       image_(juce::Image::RGB, oled::kWidth, oled::kHeight, true),

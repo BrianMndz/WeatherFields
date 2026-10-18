@@ -298,15 +298,25 @@ void OledScreen::Draw(u8g2_t* u8g2, std::uint32_t ms, const oled::RigReadout& ri
     if (started_) {
         for (int id = kParamCount - 1; id >= 0; --id) {
             if (kPopups[id].shown == Shown::Nothing || values[id] == shown_[id]) continue;
-            popup_ = id;
-            popupStartMs_ = ms;
+            changed_ = id;
+            changedMs_ = ms;
             const bool spectral = Index(values[id], 4) == kSpectral || Index(shown_[id], 4) == kSpectral;
-            popupErased_ = id == Engine::kQuality || (id == Engine::kPlaybackMode && spectral);
+            erased_ = id == Engine::kQuality || (id == Engine::kPlaybackMode && spectral);
             break;
         }
-        if (popup_ >= 0 && static_cast<std::int32_t>(ms - popupStartMs_) >= kPopupMs) popup_ = -1;
     }
     std::copy(values, values + kParamCount, shown_);
+
+    // The last change shows for kPopupMs; otherwise a choice the view
+    // presents shows for as long as it does. The erased note stays with its
+    // choice's popup until no popup shows.
+    const bool recent = changed_ >= 0 && static_cast<std::int32_t>(ms - changedMs_) < kPopupMs;
+    const oled::RigReadout::Focus focus = rig.ViewFocus();
+    const bool focused = focus.active && focus.slot == slot_ && focus.id < kParamCount &&
+                         kPopups[focus.id].shown == Shown::Choice;
+    popup_ = recent ? changed_ : focused ? static_cast<int>(focus.id) : -1;
+    if (popup_ < 0) changed_ = -1;
+    const bool erased = popup_ >= 0 && popup_ == changed_ && erased_;
 
     // The cloud's time runs only while not frozen.
     if (started_ && !frozen) cloudMs_ += ms - lastMs_;
@@ -318,7 +328,7 @@ void OledScreen::Draw(u8g2_t* u8g2, std::uint32_t ms, const oled::RigReadout& ri
     if (popup_ >= 0 && kPopups[popup_].shown == Shown::Choice) {
         const bool quality = popup_ == Engine::kQuality;
         DrawChoicePopup(u8g2, kPopups[popup_].name, quality ? kQualityChoices : kModeChoices,
-                        Index(values[popup_], 4), popupErased_);
+                        Index(values[popup_], 4), erased);
         return;
     }
 

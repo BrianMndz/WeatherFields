@@ -10,10 +10,19 @@ namespace wf {
 namespace oled {
 
 // What a screen reads from its host: the values the host published for the
-// rig's parameters, and the levels of the rig's input and output. The host
-// implements it over its published values; a screen never touches the rig.
+// rig's parameters, the levels of the rig's input and output, and what the
+// rig's view is presenting. The host implements it over its published
+// values; a screen never touches the rig.
 class RigReadout {
 public:
+    // A parameter the rig's view presents for selection, as the Clouds
+    // panel's LEDs show the quality or the mode while B selects them.
+    struct Focus {
+        bool active;
+        std::size_t slot;
+        ParamId id;
+    };
+
     // The last published value of parameter `id` in `slot`, or 0 when the
     // rig has no such parameter.
     virtual float Value(std::size_t slot, ParamId id) const noexcept = 0;
@@ -21,6 +30,9 @@ public:
     // wf::PeakFollower levels: linear peaks, 1 at full scale.
     virtual float InputLevel() const noexcept = 0;
     virtual float OutputLevel() const noexcept = 0;
+
+    // None for hosts whose views present nothing.
+    virtual Focus ViewFocus() const noexcept { return Focus{false, 0, 0}; }
 
 protected:
     ~RigReadout() = default;

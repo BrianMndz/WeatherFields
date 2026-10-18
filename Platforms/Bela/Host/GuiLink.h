@@ -23,6 +23,9 @@ namespace bela {
 //   {"event": "wf-hello", "id": <number>}                  answered with wf-state
 //   {"event": "wf-param", "slot": <n>, "id": <n>, "value": <number>}
 //   {"event": "wf-trigger", "slot": <n>, "id": <n>}
+//   {"event": "wf-focus", "page": <number>, "slot": <n>, "id": <n>,
+//    "repeat": <bool>}                                     the page presents this
+//   {"event": "wf-focus", "page": <number>}                for selection, or nothing
 // Sent to the page:
 //   {"event": "wf-state", "id": <the hello's id>, "rig": <name>,
 //    "params": [[slot, id, value], ...]}                   every parameter but triggers
@@ -31,7 +34,12 @@ namespace bela {
 // An update's params are those whose published value changed since the last
 // update. Levels are linear peaks (1 is full scale). The library sends to
 // every open page, so a page takes the wf-state whose id answers its own
-// hello.
+// hello. A focus (Published::focus) is what the page's display shows, such
+// as the Clouds quality selection, for the OLED to show too; the page
+// repeats it every second while it lasts. It has an owner, the page that set
+// it (a random id per page), so several open pages do not fight: a new
+// selection takes the focus, a repeat only refreshes its owner's or takes
+// one that lapsed, and only the owner clears it.
 //
 // Two threads produce events for render(): the library's WebSocket thread,
 // as messages arrive, and the sender thread, which retries what waited
@@ -68,10 +76,13 @@ private:
     Published& published_;
     Gui gui_;
 
-    std::mutex mutex_;                    // guards open_, outbox_ and hellos_
+    bool OnFocus(const JSONObject& root);
+
+    std::mutex mutex_;                    // guards open_, outbox_, hellos_ and focusOwner_
     bool open_ = false;                   // between Start() and Stop()
     ControlOutbox<kGuiInputCapacity> outbox_;
     std::vector<double> hellos_;          // ids of hellos to answer
+    double focusOwner_ = 0.0;             // the page whose focus is published
 
     std::vector<float> sent_;             // sender thread: values in the last update
     bool firstUpdate_ = true;

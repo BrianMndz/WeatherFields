@@ -33,10 +33,12 @@ public:
     }
     float InputLevel() const noexcept override { return input; }
     float OutputLevel() const noexcept override { return output; }
+    Focus ViewFocus() const noexcept override { return focus; }
 
     float values[Engine::kPlaybackMode + 1] = {};
     float input = 0.0f;
     float output = 1.0f;
+    Focus focus{false, 0, 0};
 
 private:
     Engine engine_;  // only for its table
@@ -324,6 +326,71 @@ void CheckChoicePopup() {
     }
 }
 
+// The view's focus on a choice shows its popup for as long as it lasts,
+// changed or not, as the panel's LEDs show the quality or mode display.
+void CheckFocus() {
+    auto title = [](const wf::oled::Display& display) { return Lit(display, 0, 0, 127, 8) > 1000; };
+    auto note = [](const wf::oled::Display& display) { return Lit(display, 0, 57, 127, 63) > 0; };
+    {
+        PopupFixture f;
+        f.rig.focus = {true, 0, Engine::kPlaybackMode};
+        f.Draw(100);
+        Expect(title(f.display) && Lit(f.display, 2, 11, 125, 21) > 900,
+               "a focused mode shows its popup, the current mode reversed, unchanged");
+        Expect(!note(f.display), "no erased note without a change");
+        f.Draw(5000);
+        Expect(title(f.display), "it stays while focused");
+
+        f.rig.values[Engine::kPlaybackMode] = 3.0f;
+        f.Draw(5100);
+        f.Draw(9000);
+        Expect(title(f.display) && Lit(f.display, 2, 44, 125, 54) > 900 && note(f.display),
+               "a change while focused moves the selection, and its note stays while focused");
+
+        f.rig.values[Engine::kPitch] = 5.0f;
+        f.Draw(9100);
+        Expect(!title(f.display) && HeaderPopupShown(f.display), "a knob's change still shows over it");
+        f.Draw(10700);
+        Expect(title(f.display) && !note(f.display), "then the focused popup returns, its note gone");
+
+        f.rig.focus = {false, 0, 0};
+        f.Draw(10800);
+        Expect(!title(f.display) && !HeaderPopupShown(f.display), "losing the focus closes it");
+    }
+    {
+        PopupFixture f;
+        f.rig.focus = {true, 0, Engine::kQuality};
+        f.Draw(100);
+        f.rig.values[Engine::kQuality] = 1.0f;
+        f.Draw(200);
+        f.rig.focus = {false, 0, 0};
+        f.Draw(300);
+        Expect(title(f.display) && note(f.display), "a change keeps its popup for 1.5 s after the focus ends");
+        f.Draw(1700);
+        Expect(!title(f.display), "then it closes");
+    }
+    {
+        PopupFixture f;
+        f.rig.focus = {true, 0, Engine::kPlaybackMode};
+        f.Draw(100);
+        f.rig.values[Engine::kQuality] = 1.0f;  // from elsewhere, MIDI say
+        f.Draw(200);
+        Expect(note(f.display) && Lit(f.display, 2, 22, 125, 32) > 900, "the quality change shows over the mode");
+        f.Draw(1800);
+        Expect(title(f.display) && Lit(f.display, 2, 11, 125, 21) > 900 && !note(f.display),
+               "the focused mode returns without the quality's note");
+    }
+    {
+        PopupFixture f;
+        f.rig.focus = {true, 1, Engine::kQuality};
+        f.Draw(100);
+        Expect(!title(f.display), "a focus on another slot shows nothing");
+        f.rig.focus = {true, 0, Engine::kPitch};
+        f.Draw(200);
+        Expect(!title(f.display) && !HeaderPopupShown(f.display), "nor does one on a knob");
+    }
+}
+
 }  // namespace
 
 int main() {
@@ -336,6 +403,7 @@ int main() {
     CheckMeters();
     CheckHeaderPopup();
     CheckChoicePopup();
+    CheckFocus();
 
     if (failures != 0) {
         std::cerr << failures << " check(s) failed\n";

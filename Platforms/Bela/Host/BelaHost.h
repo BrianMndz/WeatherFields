@@ -1,6 +1,7 @@
 #pragma once
 
 #include <atomic>
+#include <chrono>
 #include <cstddef>
 #include <cstdint>
 #include <memory>
@@ -43,7 +44,22 @@ struct Published {
     std::unique_ptr<std::atomic<float>[]> values;  // ParamValue() after each callback's events
     std::atomic<float> inputLevel{0.0f};           // wf::PeakFollower of the rig's input
     std::atomic<float> outputLevel{0.0f};          // and of its output
+
+    // What the browser panel presents for selection (wf-focus): a flat
+    // index, or -1 for nothing, and when the page last said so
+    // (FocusClockMs()). The page repeats it while it lasts, and it lapses
+    // kFocusLifetimeMs after the last, so a page that goes away leaves none.
+    std::atomic<std::int32_t> focus{-1};
+    std::atomic<std::uint32_t> focusMs{0};
 };
+
+constexpr std::uint32_t kFocusLifetimeMs = 2500;  // the page repeats every 1000
+
+inline std::uint32_t FocusClockMs() {
+    return static_cast<std::uint32_t>(
+        std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::steady_clock::now().time_since_epoch())
+            .count());
+}
 
 }  // namespace bela
 }  // namespace wf

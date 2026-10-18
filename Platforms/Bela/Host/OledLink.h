@@ -45,6 +45,7 @@ private:
         float Value(std::size_t slot, ParamId id) const noexcept override;
         float InputLevel() const noexcept override;
         float OutputLevel() const noexcept override;
+        Focus ViewFocus() const noexcept override;
 
     private:
         const Published& published_;
