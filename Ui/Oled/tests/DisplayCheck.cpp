@@ -34,7 +34,7 @@ void CheckLayout() {
            "outside the panel is dark");
 }
 
-// Both fonts link and have the cell sizes Fonts.h names.
+// Every font links and has the cell size Fonts.h names.
 void CheckFonts() {
     wf::oled::Display display;
     u8g2_t* u8g2 = display.U8g2();
@@ -42,6 +42,8 @@ void CheckFonts() {
     Expect(u8g2_GetMaxCharWidth(u8g2) == 6 && u8g2_GetMaxCharHeight(u8g2) == 10, "kFontText is 6x10");
     u8g2_SetFont(u8g2, wf::oled::kFontSmall);
     Expect(u8g2_GetMaxCharWidth(u8g2) == 5 && u8g2_GetMaxCharHeight(u8g2) == 7, "kFontSmall is 5x7");
+    u8g2_SetFont(u8g2, wf::oled::kFontTiny);
+    Expect(u8g2_GetMaxCharWidth(u8g2) == 4 && u8g2_GetMaxCharHeight(u8g2) == 6, "kFontTiny is 4x6");
 }
 
 void CheckTestPattern() {

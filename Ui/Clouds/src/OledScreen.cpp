@@ -2,6 +2,7 @@
 
 #include <algorithm>
 #include <cmath>
+#include <cstdio>
 
 #include "wf/clouds/Engine.h"
 #include "wf/oled/Display.h"
@@ -44,8 +45,49 @@ constexpr float kSilentDb = -48.0f;  // output level that shows no grains
 constexpr float kFullDb = -24.0f;    // and every grain
 constexpr float kMeterFloorDb = -48.0f;
 
+// Popups: a changed knob in the header, a changed choice on its own.
+constexpr std::int32_t kPopupMs = 1500;
+constexpr int kPopupBarY = kRuleY - 1;  // two rows, ending on the rule's
+constexpr int kChoiceY = 11;
+constexpr int kChoicePitch = 11;
+
 const char* const kModeNames[] = {"GRANULAR", "STRETCH", "LOOP DELAY", "SPECTRAL"};
 const char* const kQualityNames[] = {"16b ST", "16b MO", "8b ST", "8b MO"};
+const char* const kModeChoices[] = {"Granular", "Stretch", "Looping Delay", "Spectral"};
+const char* const kQualityChoices[] = {"32k 16b ST  1s", "32k 16b MO  2s", "16k 8b  ST  4s", "16k 8b  MO  8s"};
+constexpr int kSpectral = 3;
+
+// How a parameter's popup shows it, with the engine's ranges.
+enum class Shown { Nothing, Percent, Semitones, Decibels, Choice };
+
+struct Popup {
+    const char* name;
+    Shown shown;
+    float origin;  // where the bar starts, as a share of the range
+};
+
+// By parameter ID. Only what the main screen does not show as a number or
+// bar: the four BLEND values have their bars, freeze its tag, and TRIG and
+// its gate do not show.
+const Popup kPopups[] = {
+    {"POSITION", Shown::Percent, 0.0f},
+    {"SIZE", Shown::Percent, 0.0f},
+    {"PITCH", Shown::Semitones, 0.5f},
+    {"DENSITY", Shown::Percent, 0.5f},
+    {"TEXTURE", Shown::Percent, 0.0f},
+    {nullptr, Shown::Nothing, 0.0f},
+    {nullptr, Shown::Nothing, 0.0f},
+    {nullptr, Shown::Nothing, 0.0f},
+    {nullptr, Shown::Nothing, 0.0f},
+    {"IN GAIN", Shown::Decibels, 0.75f},
+    {nullptr, Shown::Nothing, 0.0f},
+    {nullptr, Shown::Nothing, 0.0f},
+    {nullptr, Shown::Nothing, 0.0f},
+    {"QUALITY", Shown::Choice, 0.0f},
+    {"MODE", Shown::Choice, 0.0f},
+};
+static_assert(sizeof(kPopups) / sizeof(kPopups[0]) == OledScreen::kParamCount, "a popup per parameter");
+static_assert(Engine::kPlaybackMode + 1 == OledScreen::kParamCount, "the screen watches every parameter");
 
 u8g2_uint_t Px(int coordinate) {
     return static_cast<u8g2_uint_t>(coordinate);
@@ -175,26 +217,122 @@ void DrawBar(u8g2_t* u8g2, int x, int y, float value) {
     if (fill > 0) u8g2_DrawBox(u8g2, Px(x + 2), Px(y + 2), Px(fill), Px(kBlendBarHeight - 4));
 }
 
+// The share of the range `value` is at, for the popup's bar.
+float Fraction(Shown shown, float value) {
+    switch (shown) {
+        case Shown::Semitones: return Unit((value + 24.0f) / 48.0f);
+        case Shown::Decibels: return Unit((value + 18.0f) / 24.0f);
+        default: return Unit(value);
+    }
+}
+
+// The header gives way to the knob: its name on the left, its value (and,
+// for DENSITY, what the module does with it) on the right, and the rule
+// becomes a bar from the origin (marked when not at the left) to the value.
+void DrawHeaderPopup(u8g2_t* u8g2, int id, float value) {
+    const Popup& popup = kPopups[id];
+    u8g2_DrawStr(u8g2, 1, kHeaderBaseline, popup.name);
+
+    char text[32];
+    switch (popup.shown) {
+        case Shown::Semitones:
+            std::snprintf(text, sizeof text, "%+.1f st", static_cast<double>(value) + 0.0);
+            break;
+        case Shown::Decibels:
+            std::snprintf(text, sizeof text, "%+.1f dB", static_cast<double>(value) + 0.0);
+            break;
+        default: {
+            const int percent = static_cast<int>(std::lround(Unit(value) * 100.0f));
+            if (id == Engine::kDensity) {
+                const char* kind = Overlap(value) == 0.0f ? "no grains" : value < 0.5f ? "regular" : "random";
+                std::snprintf(text, sizeof text, "%s %d%%", kind, percent);
+            } else {
+                std::snprintf(text, sizeof text, "%d%%", percent);
+            }
+            break;
+        }
+    }
+    u8g2_DrawStr(u8g2, Px(oled::kWidth - 1 - u8g2_GetStrWidth(u8g2, text)), kHeaderBaseline, text);
+
+    for (int x = 0; x < oled::kWidth; x += 2) u8g2_DrawPixel(u8g2, Px(x), kRuleY);
+    const int origin = static_cast<int>(std::lround(oled::kWidth * popup.origin));
+    const int end = static_cast<int>(std::lround(oled::kWidth * Fraction(popup.shown, value)));
+    if (end != origin) u8g2_DrawBox(u8g2, Px(std::min(origin, end)), kPopupBarY, Px(std::abs(end - origin)), 2);
+    if (popup.origin > 0.0f) u8g2_DrawVLine(u8g2, Px(origin), kPopupBarY - 1, 4);
+}
+
+// The whole screen: the choice's options, the current one reversed, and a
+// note when the change erased the recording.
+void DrawChoicePopup(u8g2_t* u8g2, const char* title, const char* const* options, int current, bool erased) {
+    u8g2_ClearBuffer(u8g2);
+    u8g2_SetFont(u8g2, oled::kFontSmall);
+    DrawReversed(u8g2, 0, 0, oled::kWidth, kRuleY - 1, title);
+    u8g2_SetFont(u8g2, oled::kFontText);
+    for (int i = 0; i < 4; ++i) {
+        const int y = kChoiceY + i * kChoicePitch;
+        if (i == current) {
+            u8g2_DrawRBox(u8g2, 2, Px(y), oled::kWidth - 4, kChoicePitch, 2);
+            u8g2_SetDrawColor(u8g2, 0);
+        }
+        u8g2_DrawStr(u8g2, 6, Px(y + 9), options[i]);
+        u8g2_SetDrawColor(u8g2, 1);
+    }
+    if (erased) {
+        const char* note = "recording erased, freeze off";
+        u8g2_SetFont(u8g2, oled::kFontTiny);
+        u8g2_DrawStr(u8g2, Px((oled::kWidth - u8g2_GetStrWidth(u8g2, note)) / 2), oled::kHeight - 1, note);
+    }
+}
+
 }  // namespace
 
 void OledScreen::Draw(u8g2_t* u8g2, std::uint32_t ms, const oled::RigReadout& rig) noexcept {
-    auto value = [&](Engine::Param id) { return rig.Value(slot_, id); };
+    float values[kParamCount];
+    for (int id = 0; id < kParamCount; ++id) values[id] = rig.Value(slot_, static_cast<ParamId>(id));
+    auto value = [&values](Engine::Param id) { return values[id]; };
     const bool frozen = value(Engine::kFreeze) > 0.5f;
+
+    // A changed value opens its popup, replacing any other; choices first,
+    // as a quality or mode change can change other values with it. The
+    // first frame only learns the values.
+    if (started_) {
+        for (int id = kParamCount - 1; id >= 0; --id) {
+            if (kPopups[id].shown == Shown::Nothing || values[id] == shown_[id]) continue;
+            popup_ = id;
+            popupStartMs_ = ms;
+            const bool spectral = Index(values[id], 4) == kSpectral || Index(shown_[id], 4) == kSpectral;
+            popupErased_ = id == Engine::kQuality || (id == Engine::kPlaybackMode && spectral);
+            break;
+        }
+        if (popup_ >= 0 && static_cast<std::int32_t>(ms - popupStartMs_) >= kPopupMs) popup_ = -1;
+    }
+    std::copy(values, values + kParamCount, shown_);
 
     // The cloud's time runs only while not frozen.
     if (started_ && !frozen) cloudMs_ += ms - lastMs_;
     started_ = true;
     lastMs_ = ms;
 
-    u8g2_ClearBuffer(u8g2);
     u8g2_SetDrawColor(u8g2, 1);
     u8g2_SetFontMode(u8g2, 1);
+    if (popup_ >= 0 && kPopups[popup_].shown == Shown::Choice) {
+        const bool quality = popup_ == Engine::kQuality;
+        DrawChoicePopup(u8g2, kPopups[popup_].name, quality ? kQualityChoices : kModeChoices,
+                        Index(values[popup_], 4), popupErased_);
+        return;
+    }
+
+    u8g2_ClearBuffer(u8g2);
     u8g2_SetFont(u8g2, oled::kFontSmall);
 
-    u8g2_DrawStr(u8g2, 1, kHeaderBaseline, kModeNames[Index(value(Engine::kPlaybackMode), 4)]);
-    u8g2_DrawStr(u8g2, kQualityX, kHeaderBaseline, kQualityNames[Index(value(Engine::kQuality), 4)]);
-    if (frozen) DrawReversed(u8g2, kFreezeX, 0, oled::kWidth - kFreezeX, kRuleY - 1, "FRZ");
-    u8g2_DrawHLine(u8g2, 0, kRuleY, oled::kWidth);
+    if (popup_ >= 0) {
+        DrawHeaderPopup(u8g2, popup_, values[popup_]);
+    } else {
+        u8g2_DrawStr(u8g2, 1, kHeaderBaseline, kModeNames[Index(value(Engine::kPlaybackMode), 4)]);
+        u8g2_DrawStr(u8g2, kQualityX, kHeaderBaseline, kQualityNames[Index(value(Engine::kQuality), 4)]);
+        if (frozen) DrawReversed(u8g2, kFreezeX, 0, oled::kWidth - kFreezeX, kRuleY - 1, "FRZ");
+        u8g2_DrawHLine(u8g2, 0, kRuleY, oled::kWidth);
+    }
 
     const Grains grains{Unit(value(Engine::kDensity)), Unit(value(Engine::kSize)), Unit(value(Engine::kPosition)),
                         std::max(-24.0f, std::min(value(Engine::kPitch), 24.0f)), Unit(value(Engine::kTexture)),

@@ -132,7 +132,8 @@ void CheckDensity() {
 
     for (float density : {0.1f, 0.9f}) {
         rig.values[Engine::kDensity] = density;
-        screen.Draw(display.U8g2(), 300, rig);
+        wf::clouds::OledScreen fresh(0);  // no popup: its first frame
+        fresh.Draw(display.U8g2(), 300, rig);
         Expect(CloudLit(display) > 0, "grains away from noon, either side");
     }
 }
@@ -219,6 +220,110 @@ void CheckMeters() {
     Expect(plain > 11 && boosted == 66, "IN follows IN GAIN");
 }
 
+// The header popup: its bar on rows 9 and 10, where the main screen has only
+// its solid rule on row 10. A bar at its origin leaves row 9 empty, but then
+// row 10 is dotted.
+bool HeaderPopupShown(const wf::oled::Display& display) {
+    return Lit(display, 0, 9, 127, 9) > 0 || Lit(display, 0, 10, 127, 10) < 128;
+}
+
+// A screen that has drawn its first frame at 0 ms with no grains, so popups
+// open on the changes that follow.
+struct PopupFixture {
+    PopupFixture() {
+        rig.values[Engine::kDensity] = 0.5f;
+        screen.Draw(display.U8g2(), 0, rig);
+    }
+    void Draw(std::uint32_t ms) { screen.Draw(display.U8g2(), ms, rig); }
+
+    FakeReadout rig;
+    wf::oled::Display display;
+    wf::clouds::OledScreen screen{0};
+};
+
+void CheckHeaderPopup() {
+    {
+        PopupFixture f;
+        Expect(!HeaderPopupShown(f.display), "the first frame opens no popup");
+        f.rig.values[Engine::kPitch] = 24.0f;
+        f.Draw(1000);
+        Expect(HeaderPopupShown(f.display), "a changed knob opens its popup");
+        // PITCH's origin is the middle, x 64, marked on rows 8 to 11.
+        Expect(Lit(f.display, 64, 9, 127, 10) == 64 * 2 && Lit(f.display, 0, 9, 63, 9) == 0,
+               "+24 st fills the bar's right half");
+        Expect(Lit(f.display, 64, 8, 64, 11) == 4, "the origin is marked");
+        Expect(Lit(f.display, 0, 12, 127, 63) > 0 && Lit(f.display, 119, 12, 126, 44) > 0,
+               "the rest of the screen stays");
+        f.Draw(2499);
+        Expect(HeaderPopupShown(f.display), "it stays for 1.5 s");
+        f.Draw(2500);
+        Expect(!HeaderPopupShown(f.display), "then closes");
+
+        f.rig.values[Engine::kPitch] = -24.0f;
+        f.Draw(3000);
+        f.rig.values[Engine::kPitch] = -23.0f;
+        f.Draw(4000);
+        f.Draw(5400);
+        Expect(HeaderPopupShown(f.display), "each change restarts its time");
+        f.rig.values[Engine::kPitch] = -24.0f;
+        f.Draw(5500);
+        Expect(Lit(f.display, 0, 9, 63, 9) == 64 && Lit(f.display, 65, 9, 127, 9) == 0,
+               "-24 st fills the left half");
+    }
+    {
+        PopupFixture f;
+        f.rig.values[Engine::kPosition] = 0.0f;
+        f.Draw(100);
+        Expect(HeaderPopupShown(f.display) && Lit(f.display, 0, 9, 127, 9) == 0,
+               "a knob at its origin opens an empty bar");
+    }
+    {
+        PopupFixture f;
+        const Engine::Param quiet[] = {Engine::kDryWet, Engine::kStereoSpread, Engine::kFeedback,
+                                       Engine::kReverb, Engine::kFreeze,     Engine::kGate};
+        std::uint32_t ms = 0;
+        for (Engine::Param id : quiet) {
+            f.rig.values[id] = f.rig.values[id] > 0.5f ? 0.0f : 1.0f;  // a change from any default
+            f.Draw(ms += 100);
+            Expect(!HeaderPopupShown(f.display), "the BLEND values, freeze and the gate open no popup");
+        }
+    }
+}
+
+// The choice popup: a reversed title, the options at rows 11, 22, 33 and 44,
+// 11 high, the current one reversed, and a note at the bottom.
+void CheckChoicePopup() {
+    {
+        PopupFixture f;
+        f.rig.values[Engine::kQuality] = 2.0f;
+        f.rig.values[Engine::kFreeze] = 0.0f;  // as the engine releases it
+        f.Draw(100);
+        Expect(Lit(f.display, 0, 0, 127, 8) > 1000, "a changed quality shows its title reversed");
+        Expect(Lit(f.display, 2, 33, 125, 43) > 900 && Lit(f.display, 2, 11, 125, 21) < 300,
+               "the new quality reversed, the others not");
+        Expect(Lit(f.display, 0, 57, 127, 63) > 0, "a quality change notes the erased recording");
+        f.Draw(1600);
+        Expect(Lit(f.display, 0, 0, 127, 8) < 400, "it closes after 1.5 s");
+    }
+    {
+        PopupFixture f;
+        f.rig.values[Engine::kPlaybackMode] = 1.0f;
+        f.Draw(100);
+        Expect(Lit(f.display, 2, 22, 125, 32) > 900, "a changed mode shows the new one reversed");
+        Expect(Lit(f.display, 0, 56, 127, 63) == 0, "granular to stretch keeps the recording");
+        f.rig.values[Engine::kPlaybackMode] = 3.0f;
+        f.Draw(200);
+        Expect(Lit(f.display, 0, 57, 127, 63) > 0, "to spectral erases it");
+        f.rig.values[Engine::kPlaybackMode] = 0.0f;
+        f.Draw(300);
+        Expect(Lit(f.display, 0, 57, 127, 63) > 0, "and so does from spectral");
+        f.rig.values[Engine::kSize] = 0.1f;
+        f.Draw(400);
+        Expect(HeaderPopupShown(f.display) && Lit(f.display, 0, 47, 127, 54) > 0,
+               "a newer change replaces the popup");
+    }
+}
+
 }  // namespace
 
 int main() {
@@ -229,6 +334,8 @@ int main() {
     CheckActivity();
     CheckBlendBars();
     CheckMeters();
+    CheckHeaderPopup();
+    CheckChoicePopup();
 
     if (failures != 0) {
         std::cerr << failures << " check(s) failed\n";
