@@ -1,5 +1,7 @@
 #include "Rigs.h"
 
+#include "AudioHost.h"
+#include "Clouds/CloudsPanel.h"
 #include "wf/clouds/Engine.h"
 
 namespace wf {
@@ -12,8 +14,13 @@ std::unique_ptr<Rig> Make() {
     return std::make_unique<R>();
 }
 
+// Clouds' engine sits in slot 0 of its solo rig.
+std::unique_ptr<RigView> MakeCloudsView(AudioHost& host) {
+    return std::make_unique<CloudsPanel>(host, 0);
+}
+
 const RigEntry kRigs[] = {
-    {"Clouds", &Make<SoloRig<clouds::Engine>>},
+    {"Clouds", &Make<SoloRig<clouds::Engine>>, &MakeCloudsView},
 };
 
 }  // namespace

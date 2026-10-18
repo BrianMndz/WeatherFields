@@ -65,4 +65,52 @@ inline void ApplyGainRamp(const float* in, float* out, std::size_t frames,
     }
 }
 
+// The Clouds module's level meter (eurorack/clouds/meter.h) in floating
+// point, as CloudsEngine's JUCE and Bela builds had it: each channel's peak
+// rises towards |sample| with a 10 ms time constant and falls with a 250 ms
+// one. It scales with its input, so a level times a constant gain is the
+// level of the signal times that gain.
+class PeakFollower {
+public:
+    // Not real-time. Also resets the peaks.
+    void Configure(float sampleRate) noexcept {
+        const bool valid = IsFinite(sampleRate) && sampleRate > 0.0f;
+        attack_ = valid ? 100.0f / sampleRate : 0.0f;
+        release_ = valid ? 4.0f / sampleRate : 0.0f;
+        Reset();
+    }
+
+    void Reset() noexcept {
+        left_ = 0.0f;
+        right_ = 0.0f;
+    }
+
+    void Process(const float* left, const float* right, std::size_t frames) noexcept {
+        float peakLeft = left_;
+        float peakRight = right_;
+        for (std::size_t i = 0; i < frames; ++i) {
+            Follow(peakLeft, left[i]);
+            Follow(peakRight, right[i]);
+        }
+        // One NaN or infinite sample would otherwise stick in the peak.
+        left_ = IsFinite(peakLeft) ? peakLeft : 0.0f;
+        right_ = IsFinite(peakRight) ? peakRight : 0.0f;
+    }
+
+    // The louder channel's peak, linear (1 is full scale).
+    float Level() const noexcept { return left_ > right_ ? left_ : right_; }
+
+private:
+    void Follow(float& peak, float sample) const noexcept {
+        const float magnitude = sample < 0.0f ? -sample : sample;
+        const float error = magnitude - peak;
+        peak += error * (error > 0.0f ? attack_ : release_);
+    }
+
+    float attack_ = 0.0f;
+    float release_ = 0.0f;
+    float left_ = 0.0f;
+    float right_ = 0.0f;
+};
+
 }  // namespace wf

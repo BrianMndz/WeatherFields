@@ -120,10 +120,49 @@ void CheckGainRamp() {
     ExpectTrue(out[0] == -1.0f, "zero frames touch nothing");
 }
 
+void CheckPeakFollower() {
+    constexpr std::size_t kRate = 48000;
+    static float loud[kRate], quiet[kRate], silence[kRate];
+    for (std::size_t i = 0; i < kRate; ++i) {
+        loud[i] = (i % 2 == 0) ? 0.5f : -0.5f;
+        quiet[i] = 0.1f;
+        silence[i] = 0.0f;
+    }
+
+    wf::PeakFollower meter;
+    meter.Configure(static_cast<float>(kRate));
+    ExpectTrue(meter.Level() == 0.0f, "a meter starts at 0");
+
+    meter.Process(loud, quiet, kRate);
+    ExpectTrue(meter.Level() > 0.499f && meter.Level() <= 0.5f,
+               "a second of a 0.5 square wave reads 0.5, whatever its sign");
+
+    // 10 ms attack: after 10 ms of a step the peak is about 1 - 1/e of it.
+    wf::PeakFollower step;
+    step.Configure(static_cast<float>(kRate));
+    step.Process(loud, loud, kRate / 100);
+    ExpectTrue(step.Level() > 0.30f && step.Level() < 0.33f, "the attack's time constant is 10 ms");
+
+    // 250 ms release: a quarter second of silence leaves about 1/e.
+    meter.Process(silence, silence, kRate / 4);
+    ExpectTrue(meter.Level() > 0.17f && meter.Level() < 0.2f, "the release's time constant is 250 ms");
+
+    float nan[4];
+    for (float& sample : nan) {
+        const std::uint32_t bits = Patterns<float>::kQuietNaN;
+        std::memcpy(&sample, &bits, sizeof(sample));
+    }
+    meter.Process(nan, nan, 4);
+    ExpectTrue(meter.Level() == 0.0f, "a NaN resets the peak instead of sticking");
+    meter.Process(loud, loud, kRate);
+    ExpectTrue(meter.Level() > 0.499f, "and the meter works on");
+}
+
 int main() {
     CheckIsFinite<float>("float");
     CheckIsFinite<double>("double");
     CheckGainRamp();
+    CheckPeakFollower();
 
     // A NaN made at run time, as a blown-up feedback path makes one.
     volatile float zero = 0.0f;

@@ -1,5 +1,6 @@
 #include "MainComponent.h"
 
+#include "RigPanel.h"
 #include "Rigs.h"
 
 namespace wf {
@@ -58,16 +59,18 @@ MainComponent::MainComponent() {
 
     rigMenu_.setSelectedItemIndex(0, juce::sendNotificationSync);  // loads the first rig
 
-    setSize(860, 560);
+    setSize(640, 640);
     timerCallback();
     startTimerHz(kStatusHz);
 }
 
 MainComponent::~MainComponent() {
+    // Its selector unregisters from devices_ when deleted.
+    delete audioDialog_.getComponent();
     stopTimer();
     devices_.removeChangeListener(this);
     viewport_.setViewedComponent(nullptr, false);
-    panel_.reset();
+    view_.reset();
 }
 
 void MainComponent::LoadRig(std::size_t index) {
@@ -75,19 +78,28 @@ void MainComponent::LoadRig(std::size_t index) {
     const RigEntry* rigs = Rigs(rigCount);
     if (index >= rigCount) return;
 
-    // The panel points into the old rig's tables, so it goes first. The old
+    // The view points into the old rig's tables, so it goes first. The old
     // rig goes before the new one exists: Clouds allows one instance at a time.
     viewport_.setViewedComponent(nullptr, false);
-    panel_.reset();
+    view_.reset();
     host_.SetRig(nullptr);
     host_.SetRig(rigs[index].make());
 
-    panel_ = std::make_unique<RigPanel>(host_);
-    viewport_.setViewedComponent(panel_.get(), false);
+    if (rigs[index].makeView != nullptr) {
+        view_ = rigs[index].makeView(host_);
+    } else {
+        view_ = std::make_unique<RigPanel>(host_);
+    }
+    viewport_.setViewedComponent(view_.get(), false);
     resized();
 }
 
 void MainComponent::ShowAudioSettings() {
+    if (audioDialog_ != nullptr) {
+        audioDialog_->toFront(true);
+        return;
+    }
+
     auto selector = std::make_unique<juce::AudioDeviceSelectorComponent>(
         devices_, 0, 2, 1, 2, false, false, true, false);
     selector->setSize(520, 420);
@@ -98,7 +110,7 @@ void MainComponent::ShowAudioSettings() {
     dialog.dialogBackgroundColour = getLookAndFeel().findColour(juce::ResizableWindow::backgroundColourId);
     dialog.useNativeTitleBar = true;
     dialog.resizable = true;
-    dialog.launchAsync();
+    audioDialog_ = dialog.launchAsync();
 }
 
 void MainComponent::changeListenerCallback(juce::ChangeBroadcaster*) {
@@ -144,9 +156,9 @@ void MainComponent::resized() {
     status_.setBounds(bar);
 
     viewport_.setBounds(area);
-    if (panel_ != nullptr) {
+    if (view_ != nullptr) {
         const int width = viewport_.getMaximumVisibleWidth();
-        panel_->setSize(width, panel_->HeightFor(width));
+        view_->setSize(width, view_->HeightFor(width, viewport_.getMaximumVisibleHeight()));
     }
 }
 

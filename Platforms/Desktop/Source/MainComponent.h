@@ -8,14 +8,14 @@
 #include <juce_gui_basics/juce_gui_basics.h>
 
 #include "AudioHost.h"
-#include "RigPanel.h"
+#include "RigView.h"
 
 namespace wf {
 namespace desktop {
 
 // The desktop app's window: a rig menu, the audio settings, a status line
-// and the generated panel of the current rig. The audio device setup is
-// saved between runs.
+// and the current rig's view: its own, or the panel generated from its
+// parameter tables. The audio device setup is saved between runs.
 class MainComponent final : public juce::Component, private juce::Timer, private juce::ChangeListener {
 public:
     MainComponent();
@@ -39,7 +39,12 @@ private:
     juce::TextButton audioButton_{"Audio..."};
     juce::Label status_;
     juce::Viewport viewport_;
-    std::unique_ptr<RigPanel> panel_;
+    std::unique_ptr<RigView> view_;
+
+    // The audio settings window, while open. JUCE's modal manager deletes it
+    // when closed; still open at quit, it would go only at shutdown, after
+    // devices_, so the destructor deletes it first.
+    juce::Component::SafePointer<juce::DialogWindow> audioDialog_;
 };
 
 }  // namespace desktop

@@ -19,6 +19,7 @@ void AudioHost::SetRig(std::unique_ptr<Rig> rig) {
     // callback is added again.
     devices_.removeAudioCallback(this);
     guiInput_.Discard();
+    prepared_ = false;
 
     rig_ = std::move(rig);
     params_.clear();
@@ -33,24 +34,52 @@ void AudioHost::SetRig(std::unique_ptr<Rig> rig) {
         const ParamSpec& spec = *params_[i].spec;
         published_[i].store(spec.kind == ParamKind::Trigger ? 0.0f : spec.def, std::memory_order_relaxed);
     }
-    pending_.assign(params_.size(), Pending{});
+    waiting_.clear();
+    waitingCount_.assign(params_.size(), 0);
     restoreValues_ = false;
 
     devices_.addAudioCallback(this);  // prepares the rig, if a device is open
 }
 
+std::size_t AudioHost::FindParam(std::size_t slot, ParamId id) const noexcept {
+    for (std::size_t i = 0; i < params_.size(); ++i) {
+        if (params_[i].slot == slot && params_[i].spec->id == id) return i;
+    }
+    return kNoParam;
+}
+
 void AudioHost::SendFromGui(std::size_t index, float value) {
     if (index >= params_.size()) return;
-    pending_[index] = Pending{true, value};
+    if (params_[index].spec->kind != ParamKind::Trigger && waitingCount_[index] != 0) {
+        for (auto it = waiting_.begin(); it != waiting_.end(); ++it) {
+            if (it->index == index) {
+                waiting_.erase(it);
+                --waitingCount_[index];
+                break;
+            }
+        }
+    }
+    waiting_.push_back({index, value});
+    ++waitingCount_[index];
     FlushGui();
 }
 
 void AudioHost::FlushGui() {
-    for (std::size_t i = 0; i < pending_.size(); ++i) {
-        if (!pending_[i].waiting) continue;
-        if (!TryPush(i, pending_[i].value)) return;  // full: the timer retries
-        pending_[i].waiting = false;
+    while (!waiting_.empty()) {
+        const Waiting& next = waiting_.front();
+        if (!TryPush(next.index, next.value)) return;  // full: the timer retries
+        --waitingCount_[next.index];
+        waiting_.pop_front();
     }
+}
+
+float AudioHost::LatestValue(std::size_t index) const noexcept {
+    if (waitingCount_[index] != 0) {
+        for (auto it = waiting_.rbegin(); it != waiting_.rend(); ++it) {
+            if (it->index == index) return it->value;
+        }
+    }
+    return PublishedValue(index);
 }
 
 bool AudioHost::TryPush(std::size_t index, float value) {
@@ -73,6 +102,8 @@ void AudioHost::audioDeviceAboutToStart(juce::AudioIODevice* device) {
     silence_.assign(maxFrames_, 0.0f);
     scratchLeft_.assign(maxFrames_, 0.0f);
     scratchRight_.assign(maxFrames_, 0.0f);
+    inputMeter_.Configure(static_cast<float>(sampleRate));
+    outputMeter_.Configure(static_cast<float>(sampleRate));
 
     PrepareStatus status = PrepareStatus::Ok;
     if (rig_ != nullptr) {
@@ -84,22 +115,14 @@ void AudioHost::audioDeviceAboutToStart(juce::AudioIODevice* device) {
         status = rig_->Prepare(rate, maxFrames_, MemoryBlock{memory_.data() + offset, bytes});
 
         if (status == PrepareStatus::Ok) {
-            // A device restart (new rate or block size) re-prepares the rig,
-            // which resets it; the values it had come back as events, through
-            // the same validation as the GUI's.
-            if (restoreValues_) {
-                for (std::size_t i = 0; i < params_.size(); ++i) {
-                    const ParamRef& param = params_[i];
-                    if (param.spec->kind == ParamKind::Trigger) continue;
-                    rig_->Handle(ControlEvent{ControlEvent::Type::Param,
-                                              static_cast<std::uint8_t>(param.slot), param.spec->id,
-                                              published_[i].load(std::memory_order_relaxed)});
-                }
-            }
+            if (restoreValues_) Restore();
             restoreValues_ = true;
             Publish();
         }
     }
+    prepared_ = rig_ != nullptr && status == PrepareStatus::Ok;
+    inputLevel_.store(0.0f, std::memory_order_relaxed);
+    outputLevel_.store(0.0f, std::memory_order_relaxed);
 
     sampleRate_.store(sampleRate);
     blockSize_.store(blockSize);
@@ -107,8 +130,28 @@ void AudioHost::audioDeviceAboutToStart(juce::AudioIODevice* device) {
     running_.store(true);
 }
 
+// A device restart (new rate or block size) re-prepares the rig, which
+// resets it; the values it had come back as events, through the same
+// validation as the GUI's. Choices go first: they select modes, and a mode
+// change may reset other state (a Clouds quality change releases freeze).
+// The recording itself is gone with the Prepare().
+void AudioHost::Restore() {
+    for (const bool choices : {true, false}) {
+        for (std::size_t i = 0; i < params_.size(); ++i) {
+            const ParamRef& param = params_[i];
+            if (param.spec->kind == ParamKind::Trigger) continue;
+            if ((param.spec->kind == ParamKind::Choice) != choices) continue;
+            rig_->Handle(ControlEvent{ControlEvent::Type::Param, static_cast<std::uint8_t>(param.slot),
+                                      param.spec->id, published_[i].load(std::memory_order_relaxed)});
+        }
+    }
+}
+
 void AudioHost::audioDeviceStopped() {
+    prepared_ = false;
     running_.store(false);
+    inputLevel_.store(0.0f, std::memory_order_relaxed);
+    outputLevel_.store(0.0f, std::memory_order_relaxed);
 }
 
 void AudioHost::audioDeviceIOCallbackWithContext(const float* const* inputChannelData,
@@ -118,7 +161,7 @@ void AudioHost::audioDeviceIOCallbackWithContext(const float* const* inputChanne
                                                  const juce::AudioIODeviceCallbackContext&) {
     const std::size_t frames = numSamples > 0 ? static_cast<std::size_t>(numSamples) : 0;
 
-    if (rig_ != nullptr && maxFrames_ != 0) {
+    if (prepared_) {
         guiInput_.Drain(*rig_, kMaxGuiEventsPerCallback);
         Publish();
 
@@ -132,9 +175,11 @@ void AudioHost::audioDeviceIOCallbackWithContext(const float* const* inputChanne
         // prepared size, should a device call back with more.
         for (std::size_t done = 0; done < frames;) {
             const std::size_t count = std::min(frames - done, maxFrames_);
-            rig_->Process(inLeft != nullptr ? inLeft + done : silence_.data(),
-                          inRight != nullptr ? inRight + done : silence_.data(),
-                          scratchLeft_.data(), scratchRight_.data(), count);
+            const float* left = inLeft != nullptr ? inLeft + done : silence_.data();
+            const float* right = inRight != nullptr ? inRight + done : silence_.data();
+            inputMeter_.Process(left, right, count);
+            rig_->Process(left, right, scratchLeft_.data(), scratchRight_.data(), count);
+            outputMeter_.Process(scratchLeft_.data(), scratchRight_.data(), count);
             if (numOutputChannels > 0 && outputChannelData[0] != nullptr) {
                 std::memcpy(outputChannelData[0] + done, scratchLeft_.data(), count * sizeof(float));
             }
@@ -143,9 +188,11 @@ void AudioHost::audioDeviceIOCallbackWithContext(const float* const* inputChanne
             }
             done += count;
         }
+        inputLevel_.store(inputMeter_.Level(), std::memory_order_relaxed);
+        outputLevel_.store(outputMeter_.Level(), std::memory_order_relaxed);
     }
 
-    const int firstSilent = rig_ != nullptr && maxFrames_ != 0 ? 2 : 0;
+    const int firstSilent = prepared_ ? 2 : 0;
     for (int channel = firstSilent; channel < numOutputChannels; ++channel) {
         if (outputChannelData[channel] != nullptr) {
             std::memset(outputChannelData[channel], 0, frames * sizeof(float));

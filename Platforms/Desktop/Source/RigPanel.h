@@ -7,6 +7,7 @@
 #include <juce_gui_basics/juce_gui_basics.h>
 
 #include "AudioHost.h"
+#include "RigView.h"
 
 namespace wf {
 namespace desktop {
@@ -17,13 +18,13 @@ namespace desktop {
 // through the host and show only what the audio thread published, so state
 // the engine changes itself (Clouds' freeze after a quality change) appears
 // here too. Built for the host's current rig; rebuild it after SetRig().
-class RigPanel final : public juce::Component, private juce::Timer {
+class RigPanel final : public RigView, private juce::Timer {
 public:
     explicit RigPanel(AudioHost& host);
     ~RigPanel() override;
 
     // The height the controls need at `width`.
-    int HeightFor(int width) const;
+    int HeightFor(int width, int visibleHeight) const override;
 
     void paint(juce::Graphics& g) override;
     void resized() override;

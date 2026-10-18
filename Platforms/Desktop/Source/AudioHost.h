@@ -3,12 +3,14 @@
 #include <atomic>
 #include <cstddef>
 #include <cstdint>
+#include <deque>
 #include <memory>
 #include <vector>
 
 #include <juce_audio_devices/juce_audio_devices.h>
 
 #include "wf/ControlInput.h"
+#include "wf/Dsp.h"
 #include "wf/Engine.h"
 #include "wf/Rig.h"
 
@@ -19,6 +21,11 @@ namespace desktop {
 // GUI's events first, then the published parameter values, then Process().
 // It is the rig's only mutator; the message thread reaches the rig through
 // the GUI's ControlInput and reads it back through the published values.
+//
+// While the rig's Prepare() has failed (an unsupported sample rate, say), the
+// callback outputs silence and neither drains events nor publishes: queued
+// events wait, and the published values stay the last valid ones, which the
+// next successful Prepare() restores.
 //
 // Every parameter of every slot has a flat index, in slot order and then
 // table order; the panel addresses parameters by it.
@@ -62,22 +69,39 @@ public:
     // Message thread. The rig's parameters by flat index.
     const std::vector<ParamRef>& Params() const noexcept { return params_; }
 
+    // Message thread. The flat index of parameter `id` in `slot`, or
+    // kNoParam.
+    static constexpr std::size_t kNoParam = static_cast<std::size_t>(-1);
+    std::size_t FindParam(std::size_t slot, ParamId id) const noexcept;
+
     // Message thread. Sends a parameter's value (ignored for a Trigger) from
-    // the GUI. When the input is full, it keeps the latest value per
-    // parameter and FlushGui() sends it later; a newer value replaces it.
+    // the GUI, in the order sent. When the input is full, events wait in that
+    // order for FlushGui(). A new value for a parameter already waiting
+    // replaces it and moves to the back, so the order of the latest changes
+    // holds (quality, then freeze, stays so); each Trigger waits on its own,
+    // so no press is lost.
     void SendFromGui(std::size_t index, float value);
 
     // Message thread, from a timer: sends what SendFromGui() could not.
     void FlushGui();
 
     // Message thread. Whether a value from SendFromGui() still waits.
-    bool IsPending(std::size_t index) const noexcept { return pending_[index].waiting; }
+    bool IsPending(std::size_t index) const noexcept { return waitingCount_[index] != 0; }
 
     // Message thread. The value the audio thread published for `index` after
     // its last callback's events.
     float PublishedValue(std::size_t index) const noexcept {
         return published_[index].load(std::memory_order_relaxed);
     }
+
+    // Message thread. The value waiting to be sent, else the published one:
+    // what the next GUI action should build on (the next quality, say).
+    float LatestValue(std::size_t index) const noexcept;
+
+    // Any thread. The levels of the rig's input and output, as the Clouds
+    // module's meter measures them (wf::PeakFollower); 0 while stopped.
+    float InputLevel() const noexcept { return inputLevel_.load(std::memory_order_relaxed); }
+    float OutputLevel() const noexcept { return outputLevel_.load(std::memory_order_relaxed); }
 
     Status GetStatus() const noexcept;
 
@@ -90,12 +114,13 @@ public:
     void audioDeviceStopped() override;
 
 private:
-    struct Pending {
-        bool waiting = false;
-        float value = 0.0f;
+    struct Waiting {
+        std::size_t index;
+        float value;
     };
 
     bool TryPush(std::size_t index, float value);
+    void Restore();
     void Publish() noexcept;
 
     juce::AudioDeviceManager& devices_;
@@ -109,7 +134,8 @@ private:
     std::unique_ptr<Rig> rig_;
     std::vector<ParamRef> params_;
     std::unique_ptr<std::atomic<float>[]> published_;
-    std::vector<Pending> pending_;
+    std::deque<Waiting> waiting_;              // oldest first
+    std::vector<std::uint32_t> waitingCount_;  // entries in waiting_ per index
     ControlInput<kGuiInputCapacity> guiInput_;
 
     // Set up in audioDeviceAboutToStart(), which never runs during a
@@ -117,13 +143,18 @@ private:
     std::vector<float> silence_;
     std::vector<float> scratchLeft_;
     std::vector<float> scratchRight_;
+    PeakFollower inputMeter_;
+    PeakFollower outputMeter_;
     std::size_t maxFrames_ = 0;
+    bool prepared_ = false;       // the rig's last Prepare() succeeded
     bool restoreValues_ = false;  // the next Prepare() replays the published values
 
     std::atomic<bool> running_{false};
     std::atomic<double> sampleRate_{0.0};
     std::atomic<int> blockSize_{0};
     std::atomic<PrepareStatus> prepare_{PrepareStatus::Ok};
+    std::atomic<float> inputLevel_{0.0f};
+    std::atomic<float> outputLevel_{0.0f};
 };
 
 }  // namespace desktop

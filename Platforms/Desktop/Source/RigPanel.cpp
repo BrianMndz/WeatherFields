@@ -117,7 +117,7 @@ RigPanel::~RigPanel() {
     stopTimer();
 }
 
-int RigPanel::HeightFor(int width) const {
+int RigPanel::HeightFor(int width, int) const {
     return Layout(width, false);
 }
 
