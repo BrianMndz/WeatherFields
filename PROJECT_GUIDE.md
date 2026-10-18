@@ -47,11 +47,31 @@ Daisy Seed3, alone or combined into one system.
 
 ## Next actions
 
-1. **Desktop host, first playable**: a JUCE app with a rig menu, audio in to
-   out, and a generic panel built from `ParamSpec`. Listen with the PO-33.
-   The panel must show state the engine changes itself (a quality change
-   releases freeze): engines need a way to report parameter values back,
-   through atomics read off the audio thread.
+1. **Desktop host, first playable.** First the Core contracts it needs (from
+   the 2026-10-18 Core review), each with a check:
+   - **Parameter readback:** a `wf::Engine` query for a parameter's current
+     value, called on the audio thread; the host publishes the values to
+     preallocated atomics for the GUI. The panel must show state the engine
+     changes itself (a quality change releases freeze), and reading
+     `clouds::Engine::Controls()` from the GUI would be a data race.
+   - **Choice labels** in `ParamSpec` (static strings, null for other kinds),
+     so the panel shows "Looping Delay" rather than "Mode 2". Curves and
+     formatting only when a control needs them.
+   - **Bounded event handling:** each callback handles at most a fixed number
+     of events (at most what was queued when it started), so a producer
+     refilling the queue cannot stretch the callback; overflow counters;
+     drain the producers in a fixed order. Producer policy for a full queue:
+     the GUI keeps its latest value per parameter and retries; note-off
+     policy comes with the Tone engine. Budget `Handle()` plus `Process()`:
+     a Clouds quality or mode event runs `Service()` (204-230 µs on Bela).
+   - **Lifecycle wording:** after a failed `Prepare()` the engine outputs
+     silence and ignores events; hosts always pass valid (silent) input
+     buffers; how a host swaps rigs safely.
+   - **`Rig::Slot()` returns `const Engine*`**, so hosts read names and
+     tables without a path around `Rig::Handle()`'s validation.
+
+   Then the JUCE app: a rig menu, audio in to out, a generic panel built from
+   `ParamSpec`. Listen with the PO-33.
 2. **MIDI**: log the ROLI messages, write a hard-coded `MidiMap`, play Clouds
    from the blocks. Milestone 1 on desktop.
 3. **Bela host**: the host library and a first app with its manifest;
@@ -177,8 +197,29 @@ Earlier decisions are in the handover, section 2.
 | 2026-10-17 | `IsFinite` puts an empty `asm` barrier between the bits and the test: current Clang folds the plain exponent-bit test to true under `-ffast-math`. |
 | 2026-10-18 | One memory arena per engine: `MemoryBytes()` then `Prepare()` with one aligned block; a list of regions (for example, SRAM for Clouds' small buffer on Daisy) only if profiling needs it. |
 | 2026-10-18 | Naming: `<name>::Engine` implements `wf::Engine`; MI ports keep the module-faithful class as `<name>::Module`. |
+| 2026-10-18 | Core review accepted: Core keeps its shape and grows by milestone. Readback, choice labels, bounded event handling, lifecycle wording and a const `Rig::Slot()` come before the desktop host; the later contracts are listed under open questions. |
 
 ## Open questions
+
+- Core contracts deferred to the milestone that needs them (2026-10-18 Core
+  review); design each before building that milestone:
+  - Looper + Clouds (2): the first multi-engine rig must check arena
+    partitioning, routing buffers and in-place processing.
+  - Tone (3): channels; pitch bend, pressure and MPE later.
+  - Transport and PO-33 sync (4): events have no sample offset; musical
+    timing needs a sample-based transport and scheduling.
+  - Mixer (5): engines report no latency, and Clouds' adapters add 32+
+    frames; parallel dry/processed paths need latency reporting or
+    compensation.
+  - LFOs (6): keep base parameter values separate from modulation and the
+    effective value, so modulation never overwrites what scenes save.
+  - Scenes (7): a batch must apply in one callback (atomic publication and
+    capacity), which one mutator alone does not guarantee.
+  - Scene files and the Bela-Seed protocol: `ControlEvent`'s layout is not a
+    file or wire format; add explicit encoding, versioning and rig/engine
+    identity.
+  - More MI ports in one rig: `stmlib::Random` is process-global, so MI
+    engines are not independent instances.
 
 - Seed3 hardware (chip, RAM, codec, USB host or device) and its link to Bela
   (USB MIDI, TRS MIDI, UART).
