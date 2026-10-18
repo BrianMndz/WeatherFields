@@ -51,6 +51,9 @@ MainComponent::MainComponent() {
     audioButton_.onClick = [this] { ShowAudioSettings(); };
     addAndMakeVisible(audioButton_);
 
+    oledButton_.onClick = [this] { ShowOled(); };
+    addAndMakeVisible(oledButton_);
+
     status_.setJustificationType(juce::Justification::centredRight);
     addAndMakeVisible(status_);
 
@@ -113,6 +116,15 @@ void MainComponent::ShowAudioSettings() {
     audioDialog_ = dialog.launchAsync();
 }
 
+void MainComponent::ShowOled() {
+    if (oledWindow_ == nullptr) {
+        oledWindow_ = std::make_unique<OledWindow>();
+        oledWindow_->centreAroundComponent(this, oledWindow_->getWidth(), oledWindow_->getHeight());
+    }
+    oledWindow_->setVisible(true);
+    oledWindow_->toFront(true);
+}
+
 void MainComponent::changeListenerCallback(juce::ChangeBroadcaster*) {
     // The device setup changed: keep it for the next run.
     if (const std::unique_ptr<juce::XmlElement> state = devices_.createStateXml()) {
@@ -152,6 +164,8 @@ void MainComponent::resized() {
     rigMenu_.setBounds(bar.removeFromLeft(160));
     bar.removeFromLeft(8);
     audioButton_.setBounds(bar.removeFromLeft(90));
+    bar.removeFromLeft(8);
+    oledButton_.setBounds(bar.removeFromLeft(80));
     bar.removeFromLeft(8);
     status_.setBounds(bar);
 

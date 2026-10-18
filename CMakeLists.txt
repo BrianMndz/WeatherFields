@@ -18,9 +18,11 @@ endif()
 # SYSTEM: its headers reach consumers as system headers, so our warning flags
 # do not report upstream code.
 add_subdirectory(Modules/MutableDSP EXCLUDE_FROM_ALL SYSTEM)
+add_subdirectory(Modules/u8g2 EXCLUDE_FROM_ALL SYSTEM)
 
 add_subdirectory(Core)
 add_subdirectory(Engines)
+add_subdirectory(Ui)
 add_subdirectory(Tools)
 # Builds nothing here: Bela apps build on the board; this lists their files.
 add_subdirectory(Platforms/Bela)

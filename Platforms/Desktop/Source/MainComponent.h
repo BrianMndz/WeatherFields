@@ -8,14 +8,16 @@
 #include <juce_gui_basics/juce_gui_basics.h>
 
 #include "AudioHost.h"
+#include "OledView.h"
 #include "RigView.h"
 
 namespace wf {
 namespace desktop {
 
-// The desktop app's window: a rig menu, the audio settings, a status line
-// and the current rig's view: its own, or the panel generated from its
-// parameter tables. The audio device setup is saved between runs.
+// The desktop app's window: a rig menu, the audio settings, the emulated
+// OLED, a status line and the current rig's view: its own, or the panel
+// generated from its parameter tables. The audio device setup is saved
+// between runs.
 class MainComponent final : public juce::Component, private juce::Timer, private juce::ChangeListener {
 public:
     MainComponent();
@@ -27,6 +29,7 @@ public:
 private:
     void LoadRig(std::size_t index);
     void ShowAudioSettings();
+    void ShowOled();
     void timerCallback() override;
     void changeListenerCallback(juce::ChangeBroadcaster* source) override;
 
@@ -37,6 +40,7 @@ private:
 
     juce::ComboBox rigMenu_;
     juce::TextButton audioButton_{"Audio..."};
+    juce::TextButton oledButton_{"OLED..."};
     juce::Label status_;
     juce::Viewport viewport_;
     std::unique_ptr<RigView> view_;
@@ -45,6 +49,9 @@ private:
     // when closed; still open at quit, it would go only at shutdown, after
     // devices_, so the destructor deletes it first.
     juce::Component::SafePointer<juce::DialogWindow> audioDialog_;
+
+    // Made when first shown; closing it hides it.
+    std::unique_ptr<OledWindow> oledWindow_;
 };
 
 }  // namespace desktop
