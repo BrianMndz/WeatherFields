@@ -16,3 +16,6 @@ wf_add_manifest(bela_clouds TARGET wf::clouds wf::clouds_ui ${WF_BELA_HOST_TARGE
     INCLUDES Host
     RESOURCES Apps/Clouds/sketch.js
 )
+
+# Not an app: a measuring program for the hardware controls (no rig, no host).
+wf_add_manifest(bela_probe TARGET wf::core SOURCES Probe/PanelProbe.cpp)

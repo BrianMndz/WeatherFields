@@ -76,7 +76,7 @@ board_defines=()
 while IFS= read -r define; do
     board_defines+=("-D$define")
 done < <(manifest_values "$app" define)
-BOARD_CPPFLAGS="-std=$PROJECT_CXX_STD ${board_defines[*]} ${PROJECT_DEFINES[*]+${PROJECT_DEFINES[*]}}"
+BOARD_CPPFLAGS="-std=$PROJECT_CXX_STD ${board_defines[*]+${board_defines[*]}} ${PROJECT_DEFINES[*]+${PROJECT_DEFINES[*]}}"
 
 echo "Staging $PROJECT_NAME..."
 rm -rf "$STAGE_DIR"
@@ -106,7 +106,7 @@ done < <(manifest_values "$app" include)
 # The include directory holding $1, so .cc files keep their include path.
 include_relative() {
     local dir
-    for dir in "${includes[@]}"; do
+    for dir in ${includes[@]+"${includes[@]}"}; do
         case $1 in
             "$dir/"*) echo "${1#$dir/}"; return 0 ;;
         esac

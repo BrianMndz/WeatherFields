@@ -154,7 +154,11 @@ function(_wf_write_manifest name roots extra_sources extra_includes extra_resour
     list(APPEND includes ${extra_includes})
     foreach(target IN LISTS closure)
         get_target_property(type ${target} TYPE)
+        # A header-only library has no sources; its usage requirements still
+        # count, as a manifest's root may be one (bela_probe: wf::core).
         if(type STREQUAL "INTERFACE_LIBRARY")
+            list(APPEND includes "$<TARGET_PROPERTY:${target},INTERFACE_INCLUDE_DIRECTORIES>")
+            list(APPEND defines "$<TARGET_PROPERTY:${target},INTERFACE_COMPILE_DEFINITIONS>")
             continue()
         endif()
         get_target_property(dir ${target} SOURCE_DIR)
