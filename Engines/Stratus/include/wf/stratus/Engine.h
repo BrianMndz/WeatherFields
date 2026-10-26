@@ -40,6 +40,9 @@ private:
     void OnPlay(bool isPlayOn) noexcept;
     void OnClear() noexcept;
     void FinishFirstTake(State nextState) noexcept;
+    // Panel readback only: Recording has Play on before a loop exists.
+    bool PlayOn() const noexcept;
+    bool RecordOn() const noexcept;
 
     float* left_ = nullptr;
     float* right_ = nullptr;

@@ -16,7 +16,7 @@ constexpr std::size_t kChannels = 2;
 // std::size_t (Bela): 192 kHz needs 46 MB.
 constexpr float kMaxSampleRate = 192000.0f;
 
-// The bottom of Loop Level is silence; Handle() will map other dB values
+// The bottom of Loop Level is silence; Handle() maps other dB values
 // to gain once per event, while keeping loopLevelDb_ for readback.
 constexpr float kLoopLevelOffDb = -60.0f;
 
@@ -87,19 +87,38 @@ wf::PrepareStatus Engine::Prepare(float sampleRate, std::size_t, MemoryBlock mem
     return PrepareStatus::Ok;
 }
 
-// Event dispatch will be wired up after the transition helpers.
-void Engine::Handle(const ControlEvent&) noexcept {
+void Engine::Handle(const ControlEvent& event) noexcept {
+    if (!prepared_) return;
+    switch (event.type) {
+        case ControlEvent::Type::Param:
+            switch (event.id) {
+                case kPlay: OnPlay(event.value != 0.0f); break;
+                case kRecord: OnRecord(event.value != 0.0f); break;
+                case kLoopLevel:
+                    loopLevelDb_ = event.value;
+                    loopGain_ = loopLevelDb_ <= kLoopLevelOffDb
+                                    ? 0.0f
+                                    : std::pow(10.0f, loopLevelDb_ / 20.0f);
+                    break;
+                case kThru: thru_ = event.value != 0.0f; break;
+                default: break;
+            }
+            break;
+        case ControlEvent::Type::Trigger:
+            if (event.id == kClear) OnClear();
+            break;
+        case ControlEvent::Type::NoteOn:
+        case ControlEvent::Type::NoteOff:
+            break;
+    }
 }
 
 float Engine::ParamValue(ParamId id) const noexcept {
     switch (id) {
         case kPlay:
-            return state_ == State::kRecording || state_ == State::kPlaying ||
-                           state_ == State::kOverdubbing
-                       ? 1.0f
-                       : 0.0f;
+            return PlayOn() ? 1.0f : 0.0f;
         case kRecord:
-            return state_ == State::kRecording || state_ == State::kOverdubbing ? 1.0f : 0.0f;
+            return RecordOn() ? 1.0f : 0.0f;
         case kLoopLevel:
             return loopLevelDb_;
         case kThru:
@@ -112,13 +131,20 @@ float Engine::ParamValue(ParamId id) const noexcept {
 
 void Engine::Process(const float*, const float*, float* outLeft, float* outRight,
                      std::size_t frames) noexcept {
+    // Timing only until audio recording is implemented. Keep the first take
+    // within its buffer; completing it at capacity comes with the audio path.
+    if (prepared_ && state_ == State::kRecording) {
+        const std::size_t remaining = capacity_ - position_;
+        position_ += frames < remaining ? frames : remaining;
+    }
+    
     for (std::size_t i = 0; i < frames; ++i) {
         outLeft[i] = 0.0f;
         outRight[i] = 0.0f;
     }
 }
 
-void Engine::OnRecord(const bool isRecOn) noexcept {
+void Engine::OnRecord(bool isRecOn) noexcept {
     switch (state_) {
         case State::kEmpty:
             if (isRecOn) {
@@ -178,4 +204,13 @@ void Engine::FinishFirstTake(State nextState) noexcept {
     position_ = 0;
     // A press and release before any audio leaves no loop to play.
     state_ = length_ == 0 ? State::kEmpty : nextState;
+}
+
+bool Engine::PlayOn() const noexcept {
+    return state_ == State::kRecording || state_ == State::kPlaying ||
+           state_ == State::kOverdubbing;
+}
+
+bool Engine::RecordOn() const noexcept {
+    return state_ == State::kRecording || state_ == State::kOverdubbing;
 }
