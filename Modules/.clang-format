@@ -1,0 +1,4 @@
+# Third-party code stays as upstream wrote it (UPSTREAM.md, PATCHES.md):
+# never reformat it, even by accident from the IDE.
+DisableFormat: true
+SortIncludes: Never

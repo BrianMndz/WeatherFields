@@ -1,0 +1,29 @@
+# The repo's C++ style, for CLion and clang-format. It describes the existing
+# code, which predates it, so reformat only what you touch, never whole files.
+# Modules/ has its own .clang-format that turns formatting off.
+BasedOnStyle: Google
+Language: Cpp
+Standard: c++14
+ColumnLimit: 100
+IndentWidth: 4
+ContinuationIndentWidth: 4
+AccessModifierOffset: -4
+NamespaceIndentation: None
+FixNamespaceComments: true
+SpacesBeforeTrailingComments: 2
+DerivePointerAlignment: false
+PointerAlignment: Left
+AllowShortFunctionsOnASingleLine: Inline
+AllowShortIfStatementsOnASingleLine: WithoutElse
+AllowShortLoopsOnASingleLine: false
+AllowShortBlocksOnASingleLine: Never
+AllowShortEnumsOnASingleLine: true
+AllowShortCaseLabelsOnASingleLine: true
+BreakBeforeBraces: Attach
+AlignAfterOpenBracket: Align
+BinPackParameters: true
+BinPackArguments: true
+# Own header first, then system headers, then the project's, as the code
+# already orders them; clang-format keeps each block as written.
+IncludeBlocks: Preserve
+SortIncludes: CaseSensitive
