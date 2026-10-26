@@ -4,11 +4,12 @@
 
 #include "wf/Dsp.h"
 
+namespace {
+
 using wf::stratus::Engine;
 using wf::ParamKind;
 using wf::ParamSpec;
 
-namespace {
 constexpr float kMaxSeconds = 30.0f; // 60 once tested
 constexpr std::size_t kChannels = 2;
 // Above any real host, and low enough that the sizes cannot overflow a 32-bit
@@ -46,6 +47,7 @@ std::size_t FramesFor(float sampleRate) {
 std::size_t ChannelBytes(float sampleRate) {
     return wf::AlignMemory(FramesFor(sampleRate) * sizeof(float));
 }
+
 } // namespace
 
 const wf::ParamTable& Engine::Params() const noexcept {
@@ -85,12 +87,27 @@ wf::PrepareStatus Engine::Prepare(float sampleRate, std::size_t, MemoryBlock mem
     return PrepareStatus::Ok;
 }
 
-// Stubs until the looper's transitions and parameter readback are implemented.
+// Event dispatch will be wired up after the transition helpers.
 void Engine::Handle(const ControlEvent&) noexcept {
 }
 
-float Engine::ParamValue(ParamId) const noexcept {
-    return 0.0f;
+float Engine::ParamValue(ParamId id) const noexcept {
+    switch (id) {
+        case kPlay:
+            return state_ == State::kRecording || state_ == State::kPlaying ||
+                           state_ == State::kOverdubbing
+                       ? 1.0f
+                       : 0.0f;
+        case kRecord:
+            return state_ == State::kRecording || state_ == State::kOverdubbing ? 1.0f : 0.0f;
+        case kLoopLevel:
+            return loopLevelDb_;
+        case kThru:
+            return thru_ ? 1.0f : 0.0f;
+        case kClear:
+        default:
+            return 0.0f;
+    }
 }
 
 void Engine::Process(const float*, const float*, float* outLeft, float* outRight,
@@ -99,4 +116,66 @@ void Engine::Process(const float*, const float*, float* outLeft, float* outRight
         outLeft[i] = 0.0f;
         outRight[i] = 0.0f;
     }
+}
+
+void Engine::OnRecord(const bool isRecOn) noexcept {
+    switch (state_) {
+        case State::kEmpty:
+            if (isRecOn) {
+                length_ = 0;
+                position_ = 0;
+                state_ = State::kRecording;
+            }
+            break;
+        case State::kRecording:
+            if (!isRecOn) FinishFirstTake(State::kPlaying);
+            break;
+        case State::kPlaying:
+            if (isRecOn) state_ = State::kOverdubbing;
+            break;
+        case State::kOverdubbing:
+            if (!isRecOn) state_ = State::kPlaying;
+            break;
+        case State::kStopped:
+            if (isRecOn) {
+                position_ = 0;
+                state_ = State::kOverdubbing;
+            }
+            break;
+    }
+}
+
+void Engine::OnPlay(bool isPlayOn) noexcept {
+    switch (state_) {
+        case State::kEmpty:
+            // No loop to play.
+            break;
+        case State::kRecording:
+            if (!isPlayOn) FinishFirstTake(State::kStopped);
+            break;
+        case State::kPlaying:
+        case State::kOverdubbing:
+            if (!isPlayOn) state_ = State::kStopped;
+            break;
+        case State::kStopped:
+            if (isPlayOn) {
+                position_ = 0;
+                state_ = State::kPlaying;
+            }
+            break;
+    }
+}
+
+void Engine::OnClear() noexcept {
+    length_ = 0;
+    position_ = 0;
+    state_ = State::kEmpty;
+}
+
+void Engine::FinishFirstTake(State nextState) noexcept {
+    // During the first take, position_ counts the frames written.
+    length_ = position_;
+    position_ = 0;
+    // A press and release before any audio leaves no loop to play.
+    state_ = length_ == 0 ? State::kEmpty : nextState;
 }

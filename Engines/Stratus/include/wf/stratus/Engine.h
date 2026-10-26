@@ -36,6 +36,11 @@ private:
         kPlaying, kOverdubbing, kStopped,
     };
 
+    void OnRecord(bool isRecOn) noexcept;
+    void OnPlay(bool isPlayOn) noexcept;
+    void OnClear() noexcept;
+    void FinishFirstTake(State nextState) noexcept;
+
     float* left_ = nullptr;
     float* right_ = nullptr;
     std::size_t capacity_ = 0;   // frames each channel holds
