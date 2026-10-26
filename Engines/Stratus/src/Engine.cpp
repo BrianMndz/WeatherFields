@@ -129,18 +129,46 @@ float Engine::ParamValue(ParamId id) const noexcept {
     }
 }
 
-void Engine::Process(const float*, const float*, float* outLeft, float* outRight,
+void Engine::Process(const float* inLeft, const float* inRight, float* outLeft, float* outRight,
                      std::size_t frames) noexcept {
-    // Timing only until audio recording is implemented. Keep the first take
-    // within its buffer; completing it at capacity comes with the audio path.
-    if (prepared_ && state_ == State::kRecording) {
-        const std::size_t remaining = capacity_ - position_;
-        position_ += frames < remaining ? frames : remaining;
+    if (!prepared_) {
+        for (std::size_t i = 0; i < frames; ++i) {
+            outLeft[i] = 0.0f;
+            outRight[i] = 0.0f;
+        }
+        return;
     }
-    
+
     for (std::size_t i = 0; i < frames; ++i) {
-        outLeft[i] = 0.0f;
-        outRight[i] = 0.0f;
+        // Both inputs must be saved before either output is written (in-place).
+        const float inputL = inLeft[i];
+        const float inputR = inRight[i];
+        float outputL = thru_ ? inputL : 0.0f;
+        float outputR = thru_ ? inputR : 0.0f;
+
+        // Check each frame: finishing a full take changes the state mid-block.
+        switch (state_) {
+            case State::kEmpty:
+            case State::kStopped: break;
+            case State::kRecording:
+                left_[position_] = inputL;
+                right_[position_] = inputR;
+                if (++position_ == capacity_) FinishFirstTake(State::kPlaying);
+                break;
+            case State::kPlaying:
+            case State::kOverdubbing:
+                // Hear the old loop before adding input, so Thru sounds it once.
+                outputL += left_[position_] * loopGain_;
+                outputR += right_[position_] * loopGain_;
+                if (state_ == State::kOverdubbing) {
+                    left_[position_] += inputL;
+                    right_[position_] += inputR;
+                }
+                if (++position_ == length_) position_ = 0;
+                break;
+        }
+        outLeft[i] = outputL;
+        outRight[i] = outputR;
     }
 }
 
