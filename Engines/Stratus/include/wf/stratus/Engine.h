@@ -41,6 +41,13 @@ private:
     void OnClear() noexcept;
     void FinishFirstTake(State nextState) noexcept;
     void BeginTail(bool discarded) noexcept;
+    void CapturePreRoll() noexcept;
+    void PreserveTailSample(std::size_t position) noexcept;
+    void ReadLoop(std::size_t position, std::size_t length, std::size_t seamFrames,
+                  std::size_t preSlot, std::size_t savedFrames, float& left,
+                  float& right) const noexcept;
+    void AddInput(std::size_t position, std::size_t length, std::size_t seamFrames,
+                  std::size_t preSlot, float left, float right) noexcept;
     float AdvanceRamp(std::size_t& position, bool on) noexcept;
     // Panel readback only: Recording has Play on before a loop exists.
     bool PlayOn() const noexcept;
@@ -50,16 +57,28 @@ private:
     float* right_ = nullptr;
     float* tailLeft_ = nullptr;
     float* tailRight_ = nullptr;
+    // The last fadeFrames_ input frames, written in every state.
+    float* ringLeft_ = nullptr;
+    float* ringRight_ = nullptr;
+    // Two pre-roll slots, so a take started during Clear's tail never
+    // overwrites the pre-roll that tail still reads.
+    float* preLeft_[2] = {nullptr, nullptr};
+    float* preRight_[2] = {nullptr, nullptr};
     std::size_t capacity_ = 0;   // frames each channel holds
     bool prepared_ = false;
 
     State state_ = State::kEmpty;
     std::size_t length_ = 0;
     std::size_t position_ = 0;
+    std::size_t seamFrames_ = 0;
+    std::size_t preSlot_ = 0;
+    std::size_t ringPosition_ = 0;
 
     struct Tail {
         std::size_t position = 0;
         std::size_t length = 0;
+        std::size_t seamFrames = 0;
+        std::size_t preSlot = 0;
         std::size_t fadePosition = 0;
         std::size_t savedFrames = 0;
         bool discarded = false;

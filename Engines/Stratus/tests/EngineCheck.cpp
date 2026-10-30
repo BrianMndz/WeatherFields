@@ -284,6 +284,37 @@ void Restart(Rig& rig, std::size_t length, float rate = kSampleRate) {
     Wait(rig, ((fadeFrames + length - 1) / length) * length);
 }
 
+std::size_t SeamFramesFor(std::size_t length, float rate) {
+    const std::size_t fade = FadeFramesFor(rate);
+    return length > 1 ? (length - 1 < fade ? length - 1 : fade) : 0;
+}
+
+// The seam blends a loop's last frames into the input that preceded its
+// Record press. Checks about other things feed the take's own last frames
+// first, so the seam is transparent; nothing else may be moving.
+void StartTake(Rig& rig, const Stereo& take, float rate = kSampleRate) {
+    const std::size_t length = take.left.size();
+    const std::size_t seam = SeamFramesFor(length, rate);
+    RenderInBlocks(rig, Slice(take, length - seam, seam));
+    Send(rig, Engine::kRecord, 1);
+}
+
+// The loop as heard: frame 0 as recorded, the last before.size() frames
+// blending linearly into `before`, the input just before the press.
+Stereo SeamedLoop(const Stereo& take, const Stereo& before) {
+    Stereo expected = take;
+    const std::size_t seam = before.left.size();
+    const std::size_t start = take.left.size() - seam;
+    for (std::size_t i = 0; i < seam; ++i) {
+        const float mix = static_cast<float>(i + 1) / seam;
+        float& left = expected.left[start + i];
+        float& right = expected.right[start + i];
+        left = i + 1 == seam ? before.left[i] : left + (before.left[i] - left) * mix;
+        right = i + 1 == seam ? before.right[i] : right + (before.right[i] - right) * mix;
+    }
+    return expected;
+}
+
 void CheckThruRamp() {
     struct Rate { float sampleRate; std::size_t fadeFrames; };
     const Rate rates[] = {
@@ -363,7 +394,7 @@ void CheckInputRamp() {
         const std::size_t length = 2 * rate.fadeFrames + 3;
         Stereo take(length, 0.25f);
         for (float& sample : take.right) sample = -0.25f;
-        Send(rig, Engine::kRecord, 1);
+        StartTake(rig, take, rate.sampleRate);
         RenderInBlocks(rig, take);
         Send(rig, Engine::kRecord, 0);
         ExpectAudio(RenderInBlocks(rig, Stereo(length)), take,
@@ -487,7 +518,8 @@ void CheckInputRampEdges() {
     Send(rig, Engine::kRecord, 0);
     Wait(rig, 2);  // Finish the old tail without advancing the new loop.
     Render(rig, Stereo(3, 1));
-    ExpectAudio(Render(rig, Stereo(3)), newTake,
+    // Its seam blends into the two frames of 1 rendered before Record.
+    ExpectAudio(Render(rig, Stereo(3)), SeamedLoop(newTake, Stereo(2, 1)),
                 "Clear cancels pending writes and the next first take stays unscaled");
 }
 
@@ -531,7 +563,7 @@ void CheckLoopRamp() {
         SetThru(rig, false, rate.fadeFrames);
         Stereo take(2 * rate.fadeFrames + 7, 1);
         for (float& sample : take.right) sample = -0.5f;
-        Send(rig, Engine::kRecord, 1);
+        StartTake(rig, take, rate.sampleRate);
         RenderInBlocks(rig, take);
         Send(rig, Engine::kRecord, 0);
         ExpectAudio(Render(rig, Stereo(2)), Repeat(take, 2),
@@ -588,7 +620,7 @@ void CheckLoopTailCases() {
     const auto startLoop = [&](const Stereo& take, std::size_t position) {
         Clear(rig);
         Wait(rig, 5);
-        Send(rig, Engine::kRecord, 1);
+        StartTake(rig, take, 1000);
         RenderInBlocks(rig, take);
         Send(rig, Engine::kRecord, 0);
         Wait(rig, position);
@@ -665,8 +697,9 @@ void CheckLoopTailCases() {
     ExpectAudio(Render(rig, Slice(take, 5, 4)), Stereo(4),
                 "new take continues silently after the old tail ends");
     Send(rig, Engine::kRecord, 0);
-    ExpectAudio(Render(rig, Stereo(9)), take,
-                "old tail completion preserves the new take position, length and content");
+    // Recorded at once after Clear: its pre-roll is the silence before.
+    ExpectAudio(Render(rig, Stereo(9)), SeamedLoop(take, Stereo(5)),
+                "old tail completion preserves the new take position, length and content", 1e-6f);
 
     // Even a one-frame take can finish before a two-frame old loop fades.
     const Stereo tinyOld = Pattern(2, 11);
@@ -701,7 +734,7 @@ void CheckLoopTailCases() {
                 "new take can finish Stopped without cutting or replacing the old tail", 1e-6f);
     Send(rig, Engine::kPlay, 1);
     ExpectAudio(Render(rig, Stereo(5)),
-                LoopEnvelope(replacement, 0, {0.2f, 0.4f, 0.6f, 0.8f, 1}),
+                LoopEnvelope(SeamedLoop(replacement, tinyNew), 0, {0.2f, 0.4f, 0.6f, 0.8f, 1}),
                 "tail completion preserves a replacement take that already stopped", 1e-6f);
 
     // Record requested during Stop waits with Play, then punches in at zero.
@@ -743,7 +776,7 @@ void CheckPlayback(Rig& rig) {
     // Record raw input even with both listening paths muted. Duplicate Record
     // and Play-on events must not rewind or play the unfinished first take.
     Send(rig, Engine::kLoopLevel, -60);
-    Send(rig, Engine::kRecord, 1);
+    StartTake(rig, take);
     ExpectAudio(Render(rig, Slice(take, 0, 5)), Stereo(5), "first take with Thru off is silent");
     Send(rig, Engine::kRecord, 1);
     Send(rig, Engine::kPlay, 1);
@@ -781,7 +814,7 @@ void CheckPlayback(Rig& rig) {
 
     Reset(rig);
     const Stereo shorter = Pattern(3, 41);
-    Send(rig, Engine::kRecord, 1);
+    StartTake(rig, shorter);
     ExpectAudio(Render(rig, shorter), shorter, "Recording monitors input with Thru on");
     Send(rig, Engine::kPlay, 0);
     SetThru(rig, false);
@@ -804,7 +837,7 @@ void CheckOverdub(Rig& rig) {
             remaining -= count;
         }
     };
-    Send(rig, Engine::kRecord, 1);
+    StartTake(rig, take);
     Render(rig, take);
     Send(rig, Engine::kRecord, 0);
     SetThru(rig, false);
@@ -919,6 +952,7 @@ void CheckMaximumLength() {
     Expect(rig.Prepare(rate, blockFrames, {memory.get(), bytes}) == wf::PrepareStatus::Ok,
            "1 kHz prepares for the capacity boundary check");
     const Stereo take = Pattern(capacity);
+    const Stereo seamed = SeamedLoop(take, Stereo(FadeFramesFor(rate)));
     SetThru(rig, false, FadeFramesFor(rate));
     Send(rig, Engine::kRecord, 1);
     const std::size_t prefix = capacity - 3;
@@ -945,12 +979,143 @@ void CheckMaximumLength() {
     for (std::size_t offset = 0; offset < capacity + blockFrames; offset += blockFrames) {
         Stereo wrapped(blockFrames);
         for (std::size_t i = 0; i < blockFrames; ++i) {
-            wrapped.left[i] = take.left[(offset + i) % capacity];
-            wrapped.right[i] = take.right[(offset + i) % capacity];
+            wrapped.left[i] = seamed.left[(offset + i) % capacity];
+            wrapped.right[i] = seamed.right[(offset + i) % capacity];
         }
+        // The seam is computed; under -ffast-math it may round differently.
         ExpectAudio(Render(rig, Stereo(blockFrames)), wrapped,
-                    "full-capacity loop plays and wraps exactly");
+                    "full-capacity loop plays and wraps exactly", 1e-6f);
     }
+}
+
+void CheckSeam() {
+    struct Rate { float sampleRate; std::size_t fadeFrames; };
+    const Rate rates[] = {
+        {100, 1}, {1000, 5}, {8200, 41}, {44100, 221}, {48000, 240}, {192000, 960}};
+    for (const Rate& rate : rates) {
+        Rig rig;
+        const std::size_t bytes = rig.MemoryBytes(rate.sampleRate, kFrames);
+        std::unique_ptr<unsigned char[]> memory(new unsigned char[bytes]);
+        Expect(rig.Prepare(rate.sampleRate, kFrames, {memory.get(), bytes}) == wf::PrepareStatus::Ok,
+               "seam rig prepares");
+        SetThru(rig, false, rate.fadeFrames);
+        // Opposite signs on the two sides of the seam, a downbeat that differs
+        // from both, and on the left a pair whose naive blend misses the
+        // pre-roll at the last frame (0.3f + (-1 - 0.3f) != -1 in float).
+        const std::size_t length = 2 * rate.fadeFrames + 7;
+        const std::size_t seam = SeamFramesFor(length, rate.sampleRate);
+        Stereo before(rate.fadeFrames, -1);
+        for (float& sample : before.right) sample = -0.5f;
+        Stereo take(length, 0.3f);
+        for (float& sample : take.right) sample = 0.5f;
+        take.left[0] = 0.75f;
+        take.right[0] = -0.25f;
+        RenderInBlocks(rig, before);
+        Send(rig, Engine::kRecord, 1);
+        RenderInBlocks(rig, take);
+        Send(rig, Engine::kRecord, 0);
+        const Stereo expected =
+            SeamedLoop(take, Slice(before, rate.fadeFrames - seam, seam));
+        const Stereo laps = RenderInBlocks(rig, Stereo(4 * length));
+        ExpectAudio(laps, Repeat(expected, 4 * length),
+                    "the loop's end blends into its pre-roll on every lap", 1e-6f);
+        for (std::size_t lap = 0; lap < 4; ++lap) {
+            const std::size_t first = lap * length;
+            Expect(laps.left[first] == 0.75f && laps.right[first] == -0.25f,
+                   "the downbeat plays as recorded at full gain on every lap");
+            Expect(laps.left[first + length - 1] == -1 && laps.right[first + length - 1] == -0.5f,
+                   "the last frame is the downbeat's recorded predecessor");
+            float previous = laps.left[first + length - seam - 1];
+            for (std::size_t i = length - seam; i < length; ++i) {
+                Expect(std::abs(laps.left[first + i] - previous) <= 1.3f / seam + 1e-6f,
+                       "the seam moves by at most one crossfade step per frame");
+                previous = laps.left[first + i];
+            }
+        }
+    }
+}
+
+void CheckSeamEdges() {
+    Rig rig;
+    const std::size_t bytes = rig.MemoryBytes(1000, kFrames);
+    std::unique_ptr<unsigned char[]> memory(new unsigned char[bytes]);
+    const wf::MemoryBlock block{memory.get(), bytes};
+    const auto prepare = [&]() {
+        Expect(rig.Prepare(1000, kFrames, block) == wf::PrepareStatus::Ok, "seam edge rig prepares");
+        SetThru(rig, false, 5);
+    };
+    const auto record = [&](const Stereo& take) {
+        Send(rig, Engine::kRecord, 1);
+        Render(rig, take);
+        Send(rig, Engine::kRecord, 0);
+    };
+
+    // A one-frame click on the downbeat survives every lap.
+    prepare();
+    Stereo click(20);
+    click.left[0] = click.right[0] = 1;
+    record(click);
+    const Stereo laps = Render(rig, Stereo(60));
+    Expect(laps.left[0] == 1 && laps.left[20] == 1 && laps.left[40] == 1 && laps.right[40] == 1,
+           "a click on the downbeat is heard at full on every lap");
+
+    // Short loops: no seam at one frame, and frame 0 stays outside it.
+    prepare();
+    Render(rig, Stereo(5, 0.5f));
+    record(Stereo(1, 0.3f));
+    ExpectAudio(Render(rig, Stereo(4)), Stereo(4, 0.3f), "a one-frame loop has no seam");
+    Clear(rig);
+    Wait(rig, 5);
+    Render(rig, Stereo(5, 0.5f));
+    Stereo two(2);
+    two.left = two.right = {0.3f, 0.7f};
+    record(two);
+    Stereo twoExpected(2);
+    twoExpected.left = twoExpected.right = {0.3f, 0.5f};
+    ExpectAudio(Render(rig, Stereo(4)), Repeat(twoExpected, 4),
+                "a two-frame loop keeps its downbeat; its last frame is the pre-roll");
+
+    // Stop from Overdubbing inside the seam: the fading punch reaches both
+    // sides of the blend, so it reads back at its written gain.
+    prepare();
+    record(Stereo(10));
+    Send(rig, Engine::kRecord, 1);
+    Render(rig, Stereo(10));  // The input gain settles at full, back at frame 0.
+    Render(rig, Stereo(6));
+    Send(rig, Engine::kPlay, 0);
+    Render(rig, Stereo(5, 1));
+    Restart(rig, 10, 1000);
+    std::vector<float> punch = {0, 0, 0, 0, 0, 0, 0.8f, 0.6f, 0.4f, 0.2f};
+    Stereo punchExpected(10);
+    punchExpected.left = punchExpected.right = punch;
+    ExpectAudio(Render(rig, Stereo(10)), punchExpected,
+                "a Stop tail's punch inside the seam keeps its gain", 1e-6f);
+
+    // Clear then Record: the new take's pre-roll goes to the other slot, so
+    // the old tail still blends into its own.
+    prepare();
+    const Stereo old = Pattern(7, 41);
+    Render(rig, Stereo(5, 0.5f));
+    record(old);
+    Render(rig, Stereo(5, -0.25f));  // Becomes the new take's pre-roll.
+    Clear(rig);
+    Send(rig, Engine::kRecord, 1);
+    const Stereo next = Pattern(9, 193);
+    ExpectAudio(Render(rig, next),
+                LoopEnvelope(SeamedLoop(old, Stereo(5, 0.5f)), 5, {0.8f, 0.6f, 0.4f, 0.2f, 0, 0, 0, 0, 0}),
+                "Clear's tail keeps its own pre-roll while a new take records", 1e-6f);
+    Send(rig, Engine::kRecord, 0);
+    ExpectAudio(Render(rig, Stereo(18)), Repeat(SeamedLoop(next, Stereo(5, -0.25f)), 18),
+                "the new take blends into the input before its own press", 1e-6f);
+
+    // Prepare() clears the ring: a take right after it blends into silence.
+    Render(rig, Stereo(5, 0.9f));
+    prepare();
+    Stereo three(3);
+    three.left = three.right = {0.3f, 0.6f, 0.9f};
+    record(three);
+    ExpectAudio(Render(rig, Stereo(3)), SeamedLoop(three, Stereo(2)),
+                "no input from before Prepare() reaches a seam", 1e-6f);
 }
 
 }  // namespace
@@ -1003,6 +1168,8 @@ int main() {
     CheckOverdub(rig);
     CheckInPlace();
     CheckMaximumLength();
+    CheckSeam();
+    CheckSeamEdges();
     CheckEvents(rig);
 
     Expect(rig.Prepare(kSampleRate, kFrames, {nullptr, 0}) == wf::PrepareStatus::MemoryTooSmall,
