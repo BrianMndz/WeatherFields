@@ -40,6 +40,7 @@ private:
     void OnPlay(bool isPlayOn) noexcept;
     void OnClear() noexcept;
     void FinishFirstTake(State nextState) noexcept;
+    float AdvanceRamp(std::size_t& position, bool on) noexcept;
     // Panel readback only: Recording has Play on before a loop exists.
     bool PlayOn() const noexcept;
     bool RecordOn() const noexcept;
@@ -56,6 +57,12 @@ private:
     float loopLevelDb_ = 0.0f;
     float loopGain_ = 1.0f;
     bool thru_ = true;
+    // Gain position in a 5 ms ramp: integer steps give exact endpoints and
+    // let a mid-ramp toggle reverse without restarting the fade.
+    std::size_t fadeFrames_ = 1;
+    std::size_t dryFadePosition_ = 1;
+    std::size_t inputFadePosition_ = 0;
+    float fadeStep_ = 1.0f;
 };
 
 }  // namespace stratus

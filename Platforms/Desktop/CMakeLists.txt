@@ -47,6 +47,7 @@ target_link_libraries(wf_desktop
         wf::core
         wf::clouds
         wf::clouds_ui
+        wf::stratus
         wf::oled
         juce::juce_audio_utils
         juce::juce_data_structures

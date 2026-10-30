@@ -5,6 +5,8 @@
 #include "wf/clouds/Engine.h"
 #include "wf/clouds/OledScreen.h"
 
+#include "wf/stratus/Engine.h"
+
 namespace wf {
 namespace desktop {
 
@@ -26,6 +28,7 @@ std::unique_ptr<oled::Screen> MakeCloudsScreen() {
 
 const RigEntry kRigs[] = {
     {"Clouds", &Make<SoloRig<clouds::Engine>>, &MakeCloudsView, &MakeCloudsScreen},
+    {"Stratus", &Make<SoloRig<stratus::Engine>>, nullptr, nullptr},
 };
 
 }  // namespace

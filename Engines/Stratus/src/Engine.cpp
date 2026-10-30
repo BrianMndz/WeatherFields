@@ -15,6 +15,7 @@ constexpr std::size_t kChannels = 2;
 // Above any real host, and low enough that the sizes cannot overflow a 32-bit
 // std::size_t (Bela): 192 kHz needs 46 MB.
 constexpr float kMaxSampleRate = 192000.0f;
+constexpr double kFadeSeconds = 0.005;
 
 // The bottom of Loop Level is silence; Handle() maps other dB values
 // to gain once per event, while keeping loopLevelDb_ for readback.
@@ -82,6 +83,12 @@ wf::PrepareStatus Engine::Prepare(float sampleRate, std::size_t, MemoryBlock mem
     loopLevelDb_ = 0.0f;
     loopGain_ = 1.0f;
     thru_ = true;
+    fadeFrames_ = static_cast<std::size_t>(std::ceil(sampleRate * kFadeSeconds));
+    // Backstop: SupportedRate() already makes the ceil at least one frame.
+    if (fadeFrames_ == 0) fadeFrames_ = 1;
+    dryFadePosition_ = fadeFrames_;
+    inputFadePosition_ = 0;
+    fadeStep_ = 1.0f / static_cast<float>(fadeFrames_);
 
     prepared_ = true;
     return PrepareStatus::Ok;
@@ -143,8 +150,12 @@ void Engine::Process(const float* inLeft, const float* inRight, float* outLeft, 
         // Both inputs must be saved before either output is written (in-place).
         const float inputL = inLeft[i];
         const float inputR = inRight[i];
-        float outputL = thru_ ? inputL : 0.0f;
-        float outputR = thru_ ? inputR : 0.0f;
+        const float dryGain = AdvanceRamp(dryFadePosition_, thru_);
+        // The first take writes full input below. Only overdub punches ramp;
+        // after Record off, Playing keeps writing until this gain reaches zero.
+        const float inputGain = AdvanceRamp(inputFadePosition_, state_ == State::kOverdubbing);
+        float outputL = inputL * dryGain;
+        float outputR = inputR * dryGain;
 
         // Check each frame: finishing a full take changes the state mid-block.
         switch (state_) {
@@ -160,9 +171,9 @@ void Engine::Process(const float* inLeft, const float* inRight, float* outLeft, 
                 // Hear the old loop before adding input, so Thru sounds it once.
                 outputL += left_[position_] * loopGain_;
                 outputR += right_[position_] * loopGain_;
-                if (state_ == State::kOverdubbing) {
-                    left_[position_] += inputL;
-                    right_[position_] += inputR;
+                if (inputFadePosition_ != 0) {
+                    left_[position_] += inputL * inputGain;
+                    right_[position_] += inputR * inputGain;
                 }
                 if (++position_ == length_) position_ = 0;
                 break;
@@ -209,7 +220,13 @@ void Engine::OnPlay(bool isPlayOn) noexcept {
             break;
         case State::kPlaying:
         case State::kOverdubbing:
-            if (!isPlayOn) state_ = State::kStopped;
+            if (!isPlayOn) {
+                state_ = State::kStopped;
+                // TODO(step 3): this cut can write a click into the loop.
+                // Keep the playhead moving and fade the punch during the
+                // loop fade-out once that exists; do not retain this reset.
+                inputFadePosition_ = 0;
+            }
             break;
         case State::kStopped:
             if (isPlayOn) {
@@ -223,7 +240,18 @@ void Engine::OnPlay(bool isPlayOn) noexcept {
 void Engine::OnClear() noexcept {
     length_ = 0;
     position_ = 0;
+    // The discarded loop's punch must never carry into a new take.
+    inputFadePosition_ = 0;
     state_ = State::kEmpty;
+}
+
+float Engine::AdvanceRamp(std::size_t& position, bool on) noexcept {
+    if (on) {
+        if (position < fadeFrames_) ++position;
+    } else {
+        if (position > 0) --position;
+    }
+    return position == fadeFrames_ ? 1.0f : static_cast<float>(position) * fadeStep_;
 }
 
 void Engine::FinishFirstTake(State nextState) noexcept {

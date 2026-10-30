@@ -16,6 +16,12 @@ using Type = wf::ControlEvent::Type;
 constexpr float kSampleRate = 48000.0f;
 constexpr std::size_t kFrames = 32;
 
+std::size_t FadeFramesFor(float sampleRate) {
+    const auto frames = static_cast<std::size_t>(std::ceil(sampleRate * 0.005));
+    // Backstop, as in Prepare(): supported positive rates already ceil to >= 1.
+    return frames == 0 ? 1 : frames;
+}
+
 int failures = 0;
 
 void Expect(bool condition, const char* description) {
@@ -202,6 +208,33 @@ Stereo Render(Rig& rig, const Stereo& input, bool inPlace = false) {
     return output;
 }
 
+Stereo RenderInBlocks(Rig& rig, const Stereo& input) {
+    Stereo output(input.left.size());
+    for (std::size_t offset = 0; offset < input.left.size();) {
+        const std::size_t remaining = input.left.size() - offset;
+        const std::size_t blockSize = offset == 0 ? 2 : kFrames;
+        const std::size_t count = remaining < blockSize ? remaining : blockSize;
+        const Stereo block = Render(rig, Slice(input, offset, count));
+        for (std::size_t i = 0; i < count; ++i) {
+            output.left[offset + i] = block.left[i];
+            output.right[offset + i] = block.right[i];
+        }
+        offset += count;
+    }
+    return output;
+}
+
+// Steady-state checks wait for Thru without recording extra input. Call
+// before starting a take, and restart playback afterwards if position matters.
+void SetThru(Rig& rig, bool on, std::size_t fadeFrames = FadeFramesFor(kSampleRate)) {
+    Send(rig, Engine::kThru, on ? 1.0f : 0.0f);
+    for (std::size_t remaining = fadeFrames; remaining != 0;) {
+        const std::size_t count = remaining < kFrames ? remaining : kFrames;
+        Render(rig, Stereo(count));
+        remaining -= count;
+    }
+}
+
 void ExpectAudio(const Stereo& actual, const Stereo& expected, const char* description,
                  float tolerance = 0) {
     bool equal = actual.left.size() == expected.left.size();
@@ -225,7 +258,7 @@ Stereo Repeat(const Stereo& loop, std::size_t frames, float gain = 1) {
 void Reset(Rig& rig) {
     Clear(rig);
     Send(rig, Engine::kLoopLevel, 0);
-    Send(rig, Engine::kThru, 1);
+    SetThru(rig, true);
 }
 
 void Restart(Rig& rig) {
@@ -233,12 +266,245 @@ void Restart(Rig& rig) {
     Send(rig, Engine::kPlay, 1);
 }
 
+void CheckThruRamp() {
+    struct Rate { float sampleRate; std::size_t fadeFrames; };
+    const Rate rates[] = {
+        {100, 1}, {1000, 5}, {8200, 41}, {44100, 221}, {48000, 240}, {192000, 960}};
+    for (const Rate& rate : rates) {
+        Rig rig;
+        const std::size_t bytes = rig.MemoryBytes(rate.sampleRate, kFrames);
+        std::unique_ptr<unsigned char[]> memory(new unsigned char[bytes]);
+        const wf::MemoryBlock block{memory.get(), bytes};
+        Expect(rig.Prepare(rate.sampleRate, kFrames, block) == wf::PrepareStatus::Ok,
+               "Thru ramp rig prepares");
+        ExpectAudio(Render(rig, Stereo(1, 1)), Stereo(1, 1), "Thru starts at full gain");
+        for (bool on : {false, true}) {
+            Send(rig, Engine::kThru, on ? 1 : 0);
+            Expect(rig.Get().ParamValue(Engine::kThru) == (on ? 1 : 0),
+                   "Thru reads back its target immediately");
+            Render(rig, Stereo(0, 1));
+            float previous = on ? 0 : 1;
+            for (std::size_t offset = 0; offset < rate.fadeFrames;) {
+                // Split even the five-frame fade across callbacks.
+                const std::size_t blockSize = offset == 0 ? 2 : kFrames;
+                const std::size_t remaining = rate.fadeFrames - offset;
+                const std::size_t count = remaining < blockSize ? remaining : blockSize;
+                const Stereo actual = Render(rig, Stereo(count, 1));
+                Stereo expected(count);
+                for (std::size_t i = 0; i < count; ++i) {
+                    const float progress = static_cast<float>(offset + i + 1) /
+                                           static_cast<float>(rate.fadeFrames);
+                    expected.left[i] = expected.right[i] = on ? progress : 1 - progress;
+                    Expect(std::abs(actual.left[i] - previous) <=
+                               1.0f / static_cast<float>(rate.fadeFrames) + 1e-6f,
+                           "Thru neighbour difference is bounded, including callback edges");
+                    previous = actual.left[i];
+                }
+                ExpectAudio(actual, expected, "Thru follows the linear five-ms envelope", 1e-6f);
+                offset += count;
+            }
+            Expect(previous == (on ? 1 : 0), "Thru reaches the exact endpoint on time");
+            ExpectAudio(Render(rig, Stereo(3, 1)), Stereo(3, on ? 1 : 0),
+                        "Thru holds the exact endpoint");
+        }
+        if (rate.sampleRate == 1000) {
+            Send(rig, Engine::kThru, 0);
+            Render(rig, Stereo(2, 1));
+            Send(rig, Engine::kThru, 0);
+            ExpectAudio(Render(rig, Stereo(1, 1)), Stereo(1, 0.4f),
+                        "duplicate Thru event does not restart a fade", 1e-6f);
+            Send(rig, Engine::kThru, 1);
+            ExpectAudio(Render(rig, Stereo(1, 1)), Stereo(1, 0.6f),
+                        "mid-fade reversal continues from the current gain", 1e-6f);
+            Clear(rig);
+            ExpectAudio(Render(rig, Stereo(1, 1)), Stereo(1, 0.8f),
+                        "Clear preserves the running dry ramp", 1e-6f);
+            ExpectAudio(Render(rig, Stereo(1, 1)), Stereo(1, 1),
+                        "reversed fade reaches full gain on time");
+        }
+        SetThru(rig, false, rate.fadeFrames);
+        Expect(rig.Prepare(rate.sampleRate, kFrames, block) == wf::PrepareStatus::Ok,
+               "Thru ramp rig re-prepares");
+        Expect(rig.Get().ParamValue(Engine::kThru) == 1, "Prepare restores Thru on");
+        ExpectAudio(Render(rig, Stereo(1, 1)), Stereo(1, 1),
+                    "Prepare restores full dry gain immediately");
+    }
+}
+
+void CheckInputRamp() {
+    struct Rate { float sampleRate; std::size_t fadeFrames; };
+    const Rate rates[] = {
+        {100, 1}, {1000, 5}, {8200, 41}, {44100, 221}, {48000, 240}, {192000, 960}};
+    for (const Rate& rate : rates) {
+        Rig rig;
+        const std::size_t bytes = rig.MemoryBytes(rate.sampleRate, kFrames);
+        std::unique_ptr<unsigned char[]> memory(new unsigned char[bytes]);
+        Expect(rig.Prepare(rate.sampleRate, kFrames, {memory.get(), bytes}) == wf::PrepareStatus::Ok,
+               "input ramp rig prepares");
+        SetThru(rig, false, rate.fadeFrames);
+        const std::size_t length = 2 * rate.fadeFrames + 3;
+        Stereo take(length, 0.25f);
+        for (float& sample : take.right) sample = -0.25f;
+        Send(rig, Engine::kRecord, 1);
+        RenderInBlocks(rig, take);
+        Send(rig, Engine::kRecord, 0);
+        ExpectAudio(RenderInBlocks(rig, Stereo(length)), take,
+                    "first take stays full-level from its first frame to its last");
+
+        // Both listening paths muted: only the buffer readback can see the punch.
+        Send(rig, Engine::kLoopLevel, -60);
+        Send(rig, Engine::kRecord, 1);
+        ExpectState(rig, State::Overdubbing, "punch-in reads Record on immediately");
+        Render(rig, Stereo(0));
+        Stereo input(rate.fadeFrames + 1, 1);
+        for (float& sample : input.right) sample = -0.5f;
+        ExpectAudio(RenderInBlocks(rig, input), Stereo(input.left.size()),
+                    "muted punch-in still writes input");
+        Send(rig, Engine::kRecord, 0);
+        ExpectState(rig, State::Playing, "punch-out reads Record off before writing has faded");
+        Render(rig, Stereo(0));
+        input = Stereo(rate.fadeFrames + 2, 1);
+        for (float& sample : input.right) sample = -0.5f;
+        ExpectAudio(RenderInBlocks(rig, input), Stereo(input.left.size()),
+                    "muted punch-out still writes the fading input");
+
+        Stereo expected = take;
+        for (std::size_t i = 0; i < rate.fadeFrames; ++i) {
+            const float gain = static_cast<float>(i + 1) / rate.fadeFrames;
+            expected.left[i] += gain;
+            expected.right[i] -= 0.5f * gain;
+            const std::size_t outIndex = rate.fadeFrames + 1 + i;
+            expected.left[outIndex] += 1 - gain;
+            expected.right[outIndex] -= 0.5f * (1 - gain);
+        }
+        expected.left[rate.fadeFrames] += 1;
+        expected.right[rate.fadeFrames] -= 0.5f;
+        Send(rig, Engine::kLoopLevel, 0);
+        const Stereo actual = RenderInBlocks(rig, Stereo(length));
+        ExpectAudio(actual, expected, "buffer contains both five-ms punch ramps", 1e-6f);
+        float previous = take.left[0];
+        for (std::size_t i = 0; i < length; ++i) {
+            Expect(std::abs(actual.left[i] - previous) <= 1.0f / rate.fadeFrames + 1e-6f,
+                   "written punch envelope has no step above one fade increment");
+            previous = actual.left[i];
+        }
+        Expect(actual.left[rate.fadeFrames - 1] == 1.25f &&
+                   actual.left[2 * rate.fadeFrames] == 0.25f && actual.left.back() == 0.25f,
+               "written punch reaches exact full and zero gain on time");
+        ExpectAudio(RenderInBlocks(rig, Stereo(length)), actual,
+                    "buffer is unchanged after punch-out has finished");
+    }
+}
+
+void CheckInputRampEdges() {
+    Rig rig;
+    const std::size_t bytes = rig.MemoryBytes(1000, kFrames);
+    std::unique_ptr<unsigned char[]> memory(new unsigned char[bytes]);
+    Expect(rig.Prepare(1000, kFrames, {memory.get(), bytes}) == wf::PrepareStatus::Ok,
+           "input ramp edge-case rig prepares");
+    SetThru(rig, false, 5);
+    const auto startLoop = [&](std::size_t length) {
+        Clear(rig);
+        Send(rig, Engine::kRecord, 1);
+        Render(rig, Stereo(length));
+        Send(rig, Engine::kRecord, 0);
+    };
+    const auto expectLoop = [&](const std::vector<float>& values, const char* description) {
+        Stereo expected(values.size());
+        expected.left = expected.right = values;
+        Restart(rig);
+        ExpectAudio(Render(rig, Stereo(values.size())), expected, description, 1e-6f);
+    };
+
+    startLoop(7);
+    Send(rig, Engine::kRecord, 1);
+    Render(rig, Stereo(5, 1));
+    Send(rig, Engine::kRecord, 0);
+    Render(rig, Stereo(5, 1));
+    expectLoop({0.6f, 0.6f, 0.6f, 0.8f, 1, 0.8f, 0.6f},
+               "punch-out continues writing across the loop wrap");
+
+    startLoop(17);
+    Send(rig, Engine::kRecord, 1);
+    Render(rig, Stereo(1, 1));
+    Send(rig, Engine::kRecord, 1);  // Duplicate during punch-in.
+    Render(rig, Stereo(1, 1));
+    Send(rig, Engine::kRecord, 0);
+    Render(rig, Stereo(0));
+    Render(rig, Stereo(1, 1));
+    Send(rig, Engine::kRecord, 1);  // Reverse the punch-out.
+    Render(rig, Stereo(1, 1));
+    Send(rig, Engine::kRecord, 1);
+    Render(rig, Stereo(2, 1));
+    Send(rig, Engine::kRecord, 0);
+    Render(rig, Stereo(1, 1));
+    Send(rig, Engine::kRecord, 0);  // Duplicate during punch-out.
+    Render(rig, Stereo(4, 1));
+    Send(rig, Engine::kRecord, 1);
+    Render(rig, Stereo(1, 1));
+    Send(rig, Engine::kRecord, 0);
+    Render(rig, Stereo(1, 1));
+    expectLoop({0.2f, 0.4f, 0.2f, 0.4f, 0.6f, 0.8f, 0.6f, 0.4f, 0.2f, 0, 0, 0.2f,
+                0, 0, 0, 0, 0},
+               "punch reversals, duplicates and zero-frame calls preserve gain continuity");
+
+    startLoop(17);
+    Send(rig, Engine::kPlay, 0);
+    Send(rig, Engine::kRecord, 1);
+    Render(rig, Stereo(5, 1));
+    Send(rig, Engine::kPlay, 0);
+    Send(rig, Engine::kPlay, 1);
+    Render(rig, Stereo(17, 1));
+    // TODO(step 3): replace this expected cut with a fading punch while the
+    // loop fades out. The 1 -> 0 step is a temporary, audible limitation.
+    expectLoop({0.2f, 0.4f, 0.6f, 0.8f, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0},
+               "Record from Stopped punches in; Play off cuts input until step 3");
+
+    Send(rig, Engine::kRecord, 1);
+    Render(rig, Stereo(5, 1));
+    Clear(rig);
+    const Stereo newTake = Pattern(3);
+    Send(rig, Engine::kRecord, 1);
+    Render(rig, newTake);
+    Send(rig, Engine::kRecord, 0);
+    Render(rig, Stereo(3, 1));
+    ExpectAudio(Render(rig, Stereo(3)), newTake,
+                "Clear cancels pending writes and the next first take stays unscaled");
+}
+
+void CheckInputRampReprepare() {
+    constexpr float rate = 1000;
+    Rig rig;
+    const std::size_t bytes = rig.MemoryBytes(rate, kFrames);
+    std::unique_ptr<unsigned char[]> memory(new unsigned char[bytes]);
+    const wf::MemoryBlock block{memory.get(), bytes};
+    Expect(rig.Prepare(rate, kFrames, block) == wf::PrepareStatus::Ok,
+           "input ramp re-Prepare rig prepares");
+    Send(rig, Engine::kRecord, 1);
+    Render(rig, Stereo(8));
+    Send(rig, Engine::kRecord, 0);
+    Send(rig, Engine::kRecord, 1);
+    Render(rig, Stereo(4, 1));  // Leave the old punch at 0.8 gain.
+
+    Expect(rig.Prepare(rate, kFrames, block) == wf::PrepareStatus::Ok,
+           "Prepare succeeds during an input punch");
+    // A host can replay Record immediately after a device restart. Do not
+    // Clear or settle Thru here: either would hide a stale input ramp.
+    Send(rig, Engine::kRecord, 1);
+    Render(rig, Stereo(2));  // Shorter than the five-frame fade.
+    Send(rig, Engine::kRecord, 0);
+    Render(rig, Stereo(4, 1));
+    Restart(rig);
+    ExpectAudio(Render(rig, Stereo(2)), Stereo(2),
+                "Prepare resets the old input punch before an immediate short take");
+}
+
 void CheckPlayback(Rig& rig) {
     Reset(rig);
     const Stereo take = Pattern(13);
     const Stereo live = Pattern(31, 73);
     ExpectAudio(Render(rig, live), live, "Empty passes input with Thru on");
-    Send(rig, Engine::kThru, 0);
+    SetThru(rig, false);
     ExpectAudio(Render(rig, live), Stereo(31), "Empty mutes input with Thru off");
 
     // Record raw input even with both listening paths muted. Duplicate Record
@@ -256,9 +522,9 @@ void CheckPlayback(Rig& rig) {
 
     Send(rig, Engine::kPlay, 0);
     ExpectAudio(Render(rig, live), Stereo(31), "Stopped with Thru off is silent");
-    Send(rig, Engine::kThru, 1);
+    SetThru(rig, true);
     ExpectAudio(Render(rig, live), live, "Stopped passes live input with Thru on");
-    Send(rig, Engine::kThru, 0);
+    SetThru(rig, false);
     Send(rig, Engine::kPlay, 1);
     ExpectAudio(Render(rig, live), Repeat(take, 31), "Play from Stopped restarts at frame zero");
 
@@ -269,9 +535,9 @@ void CheckPlayback(Rig& rig) {
     Restart(rig);
     Send(rig, Engine::kLoopLevel, -60);
     ExpectAudio(Render(rig, live), Stereo(31), "bottom of Loop Level is exactly silent");
+    SetThru(rig, true);
     Restart(rig);
     Send(rig, Engine::kLoopLevel, 0);
-    Send(rig, Engine::kThru, 1);
     Stereo mix = Repeat(take, 31);
     for (std::size_t i = 0; i < 31; ++i) {
         mix.left[i] += live.left[i];
@@ -284,7 +550,7 @@ void CheckPlayback(Rig& rig) {
     Send(rig, Engine::kRecord, 1);
     ExpectAudio(Render(rig, shorter), shorter, "Recording monitors input with Thru on");
     Send(rig, Engine::kPlay, 0);
-    Send(rig, Engine::kThru, 0);
+    SetThru(rig, false);
     Send(rig, Engine::kPlay, 1);
     ExpectAudio(Render(rig, live), Repeat(shorter, 31),
                 "new shorter take never reads stale tail after Clear");
@@ -293,12 +559,25 @@ void CheckPlayback(Rig& rig) {
 void CheckOverdub(Rig& rig) {
     Reset(rig);
     const Stereo take = Pattern(13);
+    // Steady-state overdub checks punch in over silence for whole laps, so
+    // the gain settles while preserving both the buffer and the loop phase.
+    const auto settleInput = [&]() {
+        const std::size_t length = take.left.size();
+        const std::size_t frames = ((FadeFramesFor(kSampleRate) + length - 1) / length) * length;
+        for (std::size_t remaining = frames; remaining != 0;) {
+            const std::size_t count = remaining < kFrames ? remaining : kFrames;
+            Render(rig, Stereo(count));
+            remaining -= count;
+        }
+    };
     Send(rig, Engine::kRecord, 1);
     Render(rig, take);
     Send(rig, Engine::kRecord, 0);
-    Send(rig, Engine::kThru, 0);
+    SetThru(rig, false);
+    Restart(rig);
     Send(rig, Engine::kLoopLevel, -60);
     Send(rig, Engine::kRecord, 1);
+    settleInput();
     const Stereo overdub = Pattern(13, 31);
     ExpectAudio(Render(rig, overdub), Stereo(13), "muted overdub still records input");
     Send(rig, Engine::kRecord, 0);
@@ -321,13 +600,15 @@ void CheckOverdub(Rig& rig) {
         sum.left[j] += next.left[i];
         sum.right[j] += next.right[i];
     }
-    Send(rig, Engine::kThru, 1);
+    SetThru(rig, true);
+    Restart(rig);
     Send(rig, Engine::kRecord, 1);
+    settleInput();
     ExpectAudio(Render(rig, next), expected,
                 "overdub reads old loop before adding input, across wraps");
     Send(rig, Engine::kPlay, 0);
     ExpectState(rig, State::Stopped, "stopping overdub releases Record");
-    Send(rig, Engine::kThru, 0);
+    SetThru(rig, false);
     Send(rig, Engine::kPlay, 1);
     ExpectAudio(Render(rig, Stereo(31)), Repeat(sum, 31),
                 "overdub sums persist and restart from zero");
@@ -391,7 +672,7 @@ void CheckMaximumLength() {
     Expect(rig.Prepare(rate, blockFrames, {memory.get(), bytes}) == wf::PrepareStatus::Ok,
            "1 kHz prepares for the capacity boundary check");
     const Stereo take = Pattern(capacity);
-    Send(rig, Engine::kThru, 0);
+    SetThru(rig, false, FadeFramesFor(rate));
     Send(rig, Engine::kRecord, 1);
     const std::size_t prefix = capacity - 3;
     for (std::size_t offset = 0; offset < prefix;) {
@@ -465,6 +746,10 @@ int main() {
     }
     CheckTransitions(rig);
     CheckZeroFrameTakes(rig);
+    CheckThruRamp();
+    CheckInputRamp();
+    CheckInputRampEdges();
+    CheckInputRampReprepare();
     CheckPlayback(rig);
     CheckOverdub(rig);
     CheckInPlace();
