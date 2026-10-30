@@ -77,6 +77,11 @@ void CheckConstrain() {
 
     ExpectConstrained(trig, 0.0f, 1.0f, "Trigger's value becomes 1");
 
+    const wf::ParamSpec readout{5, "Length", wf::ParamKind::Readout, 0.0f, 30.0f, 0.0f, "s", nullptr};
+    float reported = 12.0f;
+    Expect(!wf::ConstrainValue(readout, reported) && reported == 12.0f,
+           "a Readout rejects every value, leaving it alone");
+
     const float nonFinite[] = {
         FromBits(0x7f800000u),  // infinity
         FromBits(0xff800000u),  // minus infinity
@@ -94,6 +99,11 @@ void CheckValidity() {
     Expect(wf::IsValidParamTable(kTable), "the example table is valid");
     Expect(wf::IsValidParamTable(wf::ParamTable{nullptr, 0}), "an empty table is valid");
     Expect(!wf::IsValidParamTable(wf::ParamTable{nullptr, 1}), "a null table with a count is invalid");
+    const wf::ParamSpec withReadout[] = {
+        kSpecs[0],
+        {5, "Length", wf::ParamKind::Readout, 0.0f, 30.0f, 0.0f, "s", nullptr},
+    };
+    Expect(wf::IsValidParamTable(wf::MakeParamTable(withReadout)), "a table with a Readout is valid");
 
     struct Case {
         wf::ParamSpec spec;
@@ -113,6 +123,8 @@ void CheckValidity() {
         {{9, "Choice", wf::ParamKind::Choice, 0.0f, 3.0f, 0.0f, "", nullptr}, "Choice without labels"},
         {{9, "Choice", wf::ParamKind::Choice, 0.0f, 2.0f, 0.0f, "", kShortLabels}, "Choice missing a label"},
         {{9, "Labels", wf::ParamKind::Toggle, 0.0f, 1.0f, 0.0f, "", kModeLabels}, "labels on a Toggle"},
+        {{9, "Readout", wf::ParamKind::Readout, 0.0f, 3.0f, 0.0f, "", kModeLabels}, "labels on a Readout"},
+        {{9, "Readout", wf::ParamKind::Readout, 0.0f, 30.0f, 31.0f, "s", nullptr}, "Readout def above max"},
         {{0, "Duplicate", wf::ParamKind::Continuous, 0.0f, 1.0f, 0.5f, "", nullptr}, "duplicate ID"},
     };
     for (const Case& c : invalid) {

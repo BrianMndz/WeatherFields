@@ -77,15 +77,18 @@ public:
     // Message thread. Sends a parameter's value (ignored for a Trigger) from
     // the GUI, in the order sent; when the input is full, events wait for
     // FlushGui() by wf::ControlOutbox's rules (only Continuous values
-    // coalesce).
+    // coalesce). Until the audio thread has handled the event and published
+    // the result, the parameter is pending.
     void SendFromGui(std::size_t index, float value);
 
     // Message thread, from a timer: sends what SendFromGui() could not.
     void FlushGui();
 
-    // Message thread. Whether a value from SendFromGui() still waits.
+    // Message thread. Whether an event from SendFromGui() has not yet been
+    // handled and published: waiting in the outbox, or queued for the audio
+    // thread.
     bool IsPending(std::size_t index) const noexcept {
-        return outbox_.IsWaiting(static_cast<std::uint8_t>(params_[index].slot), params_[index].spec->id);
+        return sent_[index] != handled_[index].load(std::memory_order_acquire);
     }
 
     // Message thread. The value the audio thread published for `index` after
@@ -94,8 +97,9 @@ public:
         return published_[index].load(std::memory_order_relaxed);
     }
 
-    // Message thread. The value waiting to be sent, else the published one:
-    // what the next GUI action should build on (the next quality, say).
+    // Message thread. While pending, the last value sent from the GUI, else
+    // the published one: what the next GUI action should build on (the next
+    // quality, say, or a toggle clicked twice before a callback).
     float LatestValue(std::size_t index) const noexcept;
 
     // Message thread. The parameter the rig's view presents for selection
@@ -134,6 +138,13 @@ private:
     std::unique_ptr<Rig> rig_;
     std::vector<ParamRef> params_;
     std::unique_ptr<std::atomic<float>[]> published_;
+    // Per parameter: GUI events sent (message thread; a coalesced value
+    // replaces one already counted), the last value sent, and events the
+    // audio thread has taken (taken_) and published after (handled_).
+    std::vector<std::uint32_t> sent_;
+    std::vector<float> requested_;
+    std::vector<std::uint32_t> taken_;
+    std::unique_ptr<std::atomic<std::uint32_t>[]> handled_;
     std::size_t viewFocus_ = kNoParam;
     ControlInput<kGuiInputCapacity> guiInput_;
     ControlOutbox<kGuiInputCapacity> outbox_{guiInput_};

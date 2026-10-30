@@ -10,7 +10,8 @@ namespace wf {
 
 // Makes `event` valid for an engine with `params`, or returns false to drop
 // it. Param events need a Continuous, Choice or Toggle parameter and get
-// their value constrained; Trigger events need a Trigger parameter; notes
+// their value constrained; Trigger events need a Trigger parameter; events
+// for a Readout are always dropped; notes
 // need a MIDI note number, and their velocity is clamped to 0..1. Non-finite
 // values are always dropped.
 inline bool ConstrainEvent(const ParamTable& params, ControlEvent& event) noexcept {

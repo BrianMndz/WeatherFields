@@ -29,18 +29,22 @@ public:
     ControlOutbox& operator=(const ControlOutbox&) = delete;
 
     // `kind` is the kind of the parameter a Param event sets; it is ignored
-    // for other events.
-    void Send(const ControlEvent& event, ParamKind kind) {
+    // for other events. Returns true when the event replaced a waiting one
+    // (a Continuous value), so one event fewer will arrive than were sent.
+    bool Send(const ControlEvent& event, ParamKind kind) {
+        bool replaced = false;
         if (event.type == ControlEvent::Type::Param && kind == ParamKind::Continuous) {
             for (auto it = waiting_.begin(); it != waiting_.end(); ++it) {
                 if (IsParam(*it, event.target, event.id)) {
                     waiting_.erase(it);
+                    replaced = true;
                     break;
                 }
             }
         }
         waiting_.push_back(event);
         Flush();
+        return replaced;
     }
 
     // Sends what waits, until the input is full again. Call it regularly,

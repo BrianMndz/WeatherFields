@@ -74,7 +74,7 @@ private:
     // Declared before the controls so it outlives every one that uses it.
     clouds_panel::PanelLookAndFeel lookAndFeel_;
 
-    clouds_panel::FreezeButton freezeButton_;
+    clouds_panel::LitButton freezeButton_{"FREEZE", clouds_panel::colours::kLedGreen, juce::Colour(0xfff4fbd8)};
     std::array<clouds_panel::PanelLed, 4> leds_;
     clouds_panel::PanelPushButton blendButton_{"Blend parameter"};
     clouds_panel::PanelPushButton saveButton_{"Load/save"};

@@ -9,6 +9,11 @@ namespace desktop {
 namespace {
 
 namespace colours = clouds_panel::colours;
+using clouds_panel::DrawLabel;
+using clouds_panel::DrawOrnament;
+using clouds_panel::DrawPill;
+using clouds_panel::DrawScrewHole;
+using clouds_panel::PanelFont;
 
 // Reference coordinates, measured from CloudsEngine's
 // references/cloudsfrontpanel.png (416 x 554 pixels). The module's jack
@@ -75,51 +80,6 @@ constexpr int kMinSpectralBufferFrames = 64;
 constexpr int kQualityCount = 4;
 constexpr int kPlaybackModeCount = 4;
 constexpr int kSpectral = static_cast<int>(clouds::PlaybackMode::Spectral);
-
-juce::Font PanelFont(float height, bool bold = true) {
-    return juce::Font(juce::FontOptions{height, bold ? juce::Font::bold : juce::Font::plain});
-}
-
-// Labels on the panel: plain black text, or white text on a coloured pill.
-void DrawLabel(juce::Graphics& g, const juce::String& text, juce::Point<float> centre,
-               juce::Colour colour = colours::kInk) {
-    g.setColour(colour);
-    g.setFont(PanelFont(11.0f));
-    g.drawText(text, juce::Rectangle<float>(120.0f, 16.0f).withCentre(centre), juce::Justification::centred,
-               false);
-}
-
-void DrawPill(juce::Graphics& g, const juce::String& text, juce::Point<float> centre, juce::Colour colour) {
-    const juce::Font font = PanelFont(11.0f);
-    const float width = juce::GlyphArrangement::getStringWidth(font, text) + 12.0f;
-    const auto pill = juce::Rectangle<float>(width, 15.0f).withCentre(centre);
-    g.setColour(colour);
-    g.fillRoundedRectangle(pill, 3.0f);
-    g.setColour(juce::Colours::white);
-    g.setFont(font);
-    g.drawText(text, pill, juce::Justification::centred, false);
-}
-
-void DrawScrewHole(juce::Graphics& g, juce::Point<float> centre) {
-    const auto hole = juce::Rectangle<float>(12.0f, 12.0f).withCentre(centre);
-    g.setColour(juce::Colour(0xff3b3c3e));
-    g.fillEllipse(hole);
-    g.setColour(juce::Colours::white.withAlpha(0.5f));
-    g.drawEllipse(hole.expanded(0.5f), 1.0f);
-}
-
-// A simplified version of the ornamental rings behind the large knobs.
-void DrawOrnament(juce::Graphics& g, juce::Point<float> centre) {
-    g.setColour(colours::kOrnament);
-    for (const float radius : {50.0f, 56.0f, 70.0f}) {
-        g.drawEllipse(juce::Rectangle<float>(radius * 2.0f, radius * 2.0f).withCentre(centre), 0.8f);
-    }
-    for (int i = 0; i < 48; ++i) {
-        const float angle = juce::MathConstants<float>::twoPi * static_cast<float>(i) / 48.0f;
-        const auto dot = centre.getPointOnCircumference(63.0f, angle);
-        g.fillEllipse(juce::Rectangle<float>(2.4f, 2.4f).withCentre(dot));
-    }
-}
 
 // The icons beside the LEDs: white glyphs on red (audio quality) or teal
 // (blend parameter) discs, and a pencil on a red square for button C.

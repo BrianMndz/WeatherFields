@@ -14,10 +14,10 @@ namespace desktop {
 
 // A panel generated from the rig's parameter tables: per slot, a knob for
 // each Continuous parameter, a menu of labels for each Choice, a latching
-// button for each Toggle and a button for each Trigger. Controls send
-// through the host and show only what the audio thread published, so state
-// the engine changes itself (Clouds' freeze after a quality change) appears
-// here too. Built for the host's current rig; rebuild it after SetRig().
+// button for each Toggle, a button for each Trigger and the value of each
+// Readout. Controls send through the host and show only what the audio
+// thread published, so state the engine changes itself (Clouds' freeze after
+// a quality change) appears here too. Built for the host's current rig; rebuild it after SetRig().
 class RigPanel final : public RigView, private juce::Timer {
 public:
     explicit RigPanel(AudioHost& host);
@@ -38,6 +38,7 @@ private:
         std::unique_ptr<juce::Slider> slider;
         std::unique_ptr<juce::ComboBox> menu;
         std::unique_ptr<juce::TextButton> button;
+        std::unique_ptr<juce::Label> readout;
     };
 
     void timerCallback() override;

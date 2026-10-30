@@ -23,7 +23,8 @@ int ItemWidth(ParamKind kind) {
         case ParamKind::Continuous: return kKnobWidth;
         case ParamKind::Choice: return kMenuWidth;
         case ParamKind::Toggle:
-        case ParamKind::Trigger: return kButtonWidth;
+        case ParamKind::Trigger:
+        case ParamKind::Readout: return kButtonWidth;
     }
     return kKnobWidth;
 }
@@ -105,6 +106,12 @@ RigPanel::RigPanel(AudioHost& host) : host_(host) {
                 addAndMakeVisible(*control->button);
                 break;
             }
+            case ParamKind::Readout: {
+                control->readout = std::make_unique<juce::Label>();
+                control->readout->setJustificationType(juce::Justification::centred);
+                addAndMakeVisible(*control->readout);
+                break;
+            }
         }
         controls_.push_back(std::move(control));
     }
@@ -154,6 +161,7 @@ int RigPanel::Layout(int width, bool apply) const {
                 if (control.slider != nullptr) control.slider->setBounds(area);
                 if (control.menu != nullptr) control.menu->setBounds(area);
                 if (control.button != nullptr) control.button->setBounds(area);
+                if (control.readout != nullptr) control.readout->setBounds(area);
             }
             x += w + kGap;
             rowHeight = std::max(rowHeight, h);
@@ -185,6 +193,10 @@ void RigPanel::timerCallback() {
                 control->button->setToggleState(on, juce::dontSendNotification);
             }
             control->button->setButtonText(on ? "On" : "Off");
+        } else if (control->readout != nullptr) {
+            const char* unit = host_.Params()[control->index].spec->unit;
+            const juce::String text = juce::String(value, 2) + (unit[0] != '\0' ? juce::String(" ") + unit : "");
+            if (control->readout->getText() != text) control->readout->setText(text, juce::dontSendNotification);
         }
     }
 }

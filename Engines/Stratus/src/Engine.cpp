@@ -28,6 +28,8 @@ const ParamSpec kSpecs[] = {
     {Engine::kLoopLevel, "Loop Level", ParamKind::Continuous, kLoopLevelOffDb, 0.0f, 0.0f, "dB",
      nullptr},
     {Engine::kThru, "Thru", ParamKind::Toggle, 0.0f, 1.0f, 1.0f, "", nullptr},
+    {Engine::kPosition, "Position", ParamKind::Readout, 0.0f, kMaxSeconds, 0.0f, "s", nullptr},
+    {Engine::kLength, "Length", ParamKind::Readout, 0.0f, kMaxSeconds, 0.0f, "s", nullptr},
 };
 
 const wf::ParamTable kTable = wf::MakeParamTable(kSpecs);
@@ -105,6 +107,7 @@ wf::PrepareStatus Engine::Prepare(float sampleRate, std::size_t, MemoryBlock mem
     preLeft_[1] = fade[6];
     preRight_[1] = fade[7];
     capacity_ = FramesFor(sampleRate);
+    frameSeconds_ = 1.0f / sampleRate;
 
     state_ = State::kEmpty;
     length_ = 0;
@@ -167,6 +170,10 @@ float Engine::ParamValue(ParamId id) const noexcept {
             return loopLevelDb_;
         case kThru:
             return thru_ ? 1.0f : 0.0f;
+        case kPosition:
+            return Seconds(position_);
+        case kLength:
+            return Seconds(length_);
         case kClear:
         default:
             return 0.0f;
@@ -423,4 +430,11 @@ bool Engine::PlayOn() const noexcept {
 
 bool Engine::RecordOn() const noexcept {
     return state_ == State::kRecording || state_ == State::kOverdubbing;
+}
+
+// A full take is ceil(rate × 30 s) frames, which can round past the
+// readouts' maximum.
+float Engine::Seconds(std::size_t frames) const noexcept {
+    const float seconds = static_cast<float>(frames) * frameSeconds_;
+    return seconds < kMaxSeconds ? seconds : kMaxSeconds;
 }

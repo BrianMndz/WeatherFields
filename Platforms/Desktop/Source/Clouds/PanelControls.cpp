@@ -60,11 +60,12 @@ float PanelKnob::CapRatio() const noexcept {
     return size_ == Size::Large ? 0.70f : 0.60f;
 }
 
-FreezeButton::FreezeButton() : juce::Button("FREEZE") {
+LitButton::LitButton(const juce::String& name, juce::Colour colour, juce::Colour core)
+    : juce::Button(name), colour_(colour), core_(core) {
     setClickingTogglesState(true);
 }
 
-void FreezeButton::paintButton(juce::Graphics& g, bool isHighlighted, bool isDown) {
+void LitButton::paintButton(juce::Graphics& g, bool isHighlighted, bool isDown) {
     const auto bounds = getLocalBounds().toFloat().reduced(1.0f);
     const float radius = juce::jmin(bounds.getWidth(), bounds.getHeight()) * 0.5f;
     const auto centre = bounds.getCentre();
@@ -74,10 +75,10 @@ void FreezeButton::paintButton(juce::Graphics& g, bool isHighlighted, bool isDow
     g.setColour(colours::kSkirt);
     g.fillEllipse(juce::Rectangle<float>(radius * 2.0f, radius * 2.0f).withCentre(centre));
 
-    // Lens: a pale green disc that glows from the centre when lit.
+    // Lens: a pale disc that glows from the centre when lit.
     const auto lens = juce::Rectangle<float>(radius * 1.7f, radius * 1.7f).withCentre(centre);
-    const auto rim = on ? colours::kLedGreen : colours::kLedGreen.withSaturation(0.25f).darker(0.1f);
-    const auto core = on ? juce::Colour(0xfff4fbd8) : rim.brighter(0.2f);
+    const auto rim = on ? colour_ : colour_.withSaturation(0.25f).darker(0.1f);
+    const auto core = on ? core_ : rim.brighter(0.2f);
     g.setGradientFill(juce::ColourGradient(core, centre, rim, lens.getTopLeft(), true));
     g.fillEllipse(lens);
 
@@ -185,6 +186,48 @@ void PanelLed::paint(juce::Graphics& g) {
     const auto core = rim.interpolatedWith(lit.brighter(0.6f), intensity);
     g.setGradientFill(juce::ColourGradient(core, centre, rim, lens.getTopLeft(), true));
     g.fillEllipse(lens);
+}
+
+juce::Font PanelFont(float height, bool bold) {
+    return juce::Font(juce::FontOptions{height, bold ? juce::Font::bold : juce::Font::plain});
+}
+
+void DrawLabel(juce::Graphics& g, const juce::String& text, juce::Point<float> centre, juce::Colour colour) {
+    g.setColour(colour);
+    g.setFont(PanelFont(11.0f));
+    g.drawText(text, juce::Rectangle<float>(120.0f, 16.0f).withCentre(centre), juce::Justification::centred,
+               false);
+}
+
+void DrawPill(juce::Graphics& g, const juce::String& text, juce::Point<float> centre, juce::Colour colour) {
+    const juce::Font font = PanelFont(11.0f);
+    const float width = juce::GlyphArrangement::getStringWidth(font, text) + 12.0f;
+    const auto pill = juce::Rectangle<float>(width, 15.0f).withCentre(centre);
+    g.setColour(colour);
+    g.fillRoundedRectangle(pill, 3.0f);
+    g.setColour(juce::Colours::white);
+    g.setFont(font);
+    g.drawText(text, pill, juce::Justification::centred, false);
+}
+
+void DrawScrewHole(juce::Graphics& g, juce::Point<float> centre) {
+    const auto hole = juce::Rectangle<float>(12.0f, 12.0f).withCentre(centre);
+    g.setColour(juce::Colour(0xff3b3c3e));
+    g.fillEllipse(hole);
+    g.setColour(juce::Colours::white.withAlpha(0.5f));
+    g.drawEllipse(hole.expanded(0.5f), 1.0f);
+}
+
+void DrawOrnament(juce::Graphics& g, juce::Point<float> centre) {
+    g.setColour(colours::kOrnament);
+    for (const float radius : {50.0f, 56.0f, 70.0f}) {
+        g.drawEllipse(juce::Rectangle<float>(radius * 2.0f, radius * 2.0f).withCentre(centre), 0.8f);
+    }
+    for (int i = 0; i < 48; ++i) {
+        const float angle = juce::MathConstants<float>::twoPi * static_cast<float>(i) / 48.0f;
+        const auto dot = centre.getPointOnCircumference(63.0f, angle);
+        g.fillEllipse(juce::Rectangle<float>(2.4f, 2.4f).withCentre(dot));
+    }
 }
 
 }  // namespace clouds_panel

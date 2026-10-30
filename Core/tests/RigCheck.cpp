@@ -24,10 +24,11 @@ float FromBits(std::uint32_t bits) {
 }
 
 // The smallest engine that exercises every part of the interface: a gain in
-// dB, a mute toggle, a choice, a trigger, notes, and memory it writes to.
+// dB, a mute toggle, a choice, a trigger, a readout of the linear gain,
+// notes, and memory it writes to.
 class GainEngine final : public wf::Engine {
 public:
-    enum : wf::ParamId { kGain = 0, kMute = 1, kCurve = 2, kReset = 3 };
+    enum : wf::ParamId { kGain = 0, kMute = 1, kCurve = 2, kReset = 3, kLinear = 4 };
 
     static constexpr std::size_t kMemoryPerFrame = 8;
 
@@ -89,6 +90,7 @@ public:
             case kGain: return gainDb_;
             case kMute: return mute_ ? 1.0f : 0.0f;
             case kCurve: return curve_;
+            case kLinear: return linearGain_;
             default: return 0.0f;
         }
     }
@@ -124,6 +126,7 @@ const wf::ParamSpec GainEngine::kSpecs[] = {
     {kMute, "Mute", wf::ParamKind::Toggle, 0.0f, 1.0f, 0.0f, "", nullptr},
     {kCurve, "Curve", wf::ParamKind::Choice, 0.0f, 2.0f, 0.0f, "", kCurveLabels},
     {kReset, "Reset", wf::ParamKind::Trigger, 0.0f, 1.0f, 0.0f, "", nullptr},
+    {kLinear, "Linear", wf::ParamKind::Readout, 0.0f, 4.0f, 1.0f, "", nullptr},
 };
 const wf::ParamTable GainEngine::kTable = wf::MakeParamTable(GainEngine::kSpecs);
 
@@ -206,6 +209,8 @@ void CheckHandle() {
         {Event(Type::Param, 0, GainEngine::kGain, FromBits(0xff800000u)), "an infinite value"},
         {Event(Type::Param, 0, GainEngine::kReset, 1.0f), "a Param event for a Trigger parameter"},
         {Event(Type::Trigger, 0, GainEngine::kGain, 1.0f), "a Trigger event for a Continuous parameter"},
+        {Event(Type::Param, 0, GainEngine::kLinear, 1.0f), "a Param event for a Readout"},
+        {Event(Type::Trigger, 0, GainEngine::kLinear, 1.0f), "a Trigger event for a Readout"},
         {Event(Type::NoteOn, 0, 128, 1.0f), "a note number above 127"},
         {Event(Type::NoteOff, 0, 60, FromBits(0x7fc00000u)), "a NaN velocity"},
     };
@@ -239,6 +244,8 @@ void CheckParamValue() {
                std::strcmp(engine.Params().Find(GainEngine::kCurve)->labels[2], "Cube") == 0,
            "a Choice reads back as an index into its labels");
     Expect(engine.ParamValue(GainEngine::kMute) == 1.0f, "a Toggle reads back as 0 or 1");
+    Expect(std::abs(engine.ParamValue(GainEngine::kLinear) - 3.981f) < 0.001f,
+           "a Readout reads back what the engine reports");
     Expect(engine.ParamValue(GainEngine::kReset) == 0.0f && engine.ParamValue(9) == 0.0f,
            "triggers and unknown IDs read 0");
 }

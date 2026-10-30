@@ -77,7 +77,8 @@ public:
 
     // Real-time, on the audio thread only. The value parameter `id` has now:
     // as the last event set it, or as the engine changed it itself (a Clouds
-    // quality change releases freeze), constrained as by ConstrainValue().
+    // quality change releases freeze), constrained as by ConstrainValue();
+    // a Readout, what the engine reports, within its spec's range.
     // Trigger and unknown IDs read 0; values are meaningful only after a
     // successful Prepare(). Other threads never call it: the host copies the
     // values out (to atomics for its GUI) after the callback's events.

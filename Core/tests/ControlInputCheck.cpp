@@ -136,9 +136,19 @@ void CheckCounters() {
     input.Push(Param(42));  // no such parameter
     input.Push(wf::ControlEvent{wf::ControlEvent::Type::Param, 3, 1, 0.5f});  // no such slot
     input.Push(Param(2));
-    Expect(input.Drain(rig, 100) == 4, "dropped events still leave the queue");
+    input.Push(Param(3));
+    wf::ParamId taken[8] = {};
+    std::size_t takenCount = 0;
+    Expect(input.Drain(rig, 4, [&](const wf::ControlEvent& event) noexcept {
+               if (takenCount < 8) taken[takenCount] = event.id;
+               ++takenCount;
+           }) == 4,
+           "dropped events still leave the queue");
+    Expect(takenCount == 4 && taken[0] == 1 && taken[1] == 42 && taken[2] == 1 && taken[3] == 2,
+           "onTaken sees each event taken, dropped ones too, in order, and not the one left");
+    Expect(input.Drain(rig, 100) == 1, "the event past maxEvents waits");
     Expect(input.Dropped() == 2, "events the rig drops are counted");
-    Expect(rig.Get().Count() == 2 && rig.Get().Id(0) == 1 && rig.Get().Id(1) == 2,
+    Expect(rig.Get().Count() == 3 && rig.Get().Id(0) == 1 && rig.Get().Id(1) == 2 && rig.Get().Id(2) == 3,
            "the valid events around them arrive");
 }
 

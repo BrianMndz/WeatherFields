@@ -46,12 +46,21 @@ public:
     // within the limits above, counting the ones the rig drops. Returns how
     // many it took from the queue.
     std::size_t Drain(Rig& rig, std::size_t maxEvents) noexcept {
+        return Drain(rig, maxEvents, [](const ControlEvent&) noexcept {});
+    }
+
+    // As above, also calling `onTaken(event)` for each event taken, handled
+    // or dropped, so a producer's host can tell what has arrived. Real-time:
+    // `onTaken` must follow the rules of Process().
+    template <typename OnTaken>
+    std::size_t Drain(Rig& rig, std::size_t maxEvents, OnTaken&& onTaken) noexcept {
         std::size_t count = queue_.PopAvailable();
         if (count > maxEvents) count = maxEvents;
         ControlEvent event;
         for (std::size_t i = 0; i < count; ++i) {
             queue_.TryPop(event);  // cannot fail: PopAvailable() said so
             if (!rig.Handle(event)) dropped_.fetch_add(1, std::memory_order_relaxed);
+            onTaken(event);
         }
         return count;
     }

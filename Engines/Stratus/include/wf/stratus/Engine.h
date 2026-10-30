@@ -10,7 +10,13 @@ namespace stratus {
 
 class Engine final : public wf::Engine {
 public:
-    enum Param : ParamId { kPlay = 0, kRecord = 1, kClear = 2, kLoopLevel = 3, kThru = 4 };
+    // Position and Length are Readouts, in seconds: the main playhead (while
+    // recording the first take, the time recorded) and the loop's length, 0
+    // until the first take ends.
+    enum Param : ParamId {
+        kPlay = 0, kRecord = 1, kClear = 2, kLoopLevel = 3, kThru = 4,
+        kPosition = 5, kLength = 6,
+    };
 
     Engine() = default;
     Engine(const Engine&) = delete;
@@ -52,6 +58,7 @@ private:
     // Panel readback only: Recording has Play on before a loop exists.
     bool PlayOn() const noexcept;
     bool RecordOn() const noexcept;
+    float Seconds(std::size_t frames) const noexcept;
 
     float* left_ = nullptr;
     float* right_ = nullptr;
@@ -65,6 +72,7 @@ private:
     float* preLeft_[2] = {nullptr, nullptr};
     float* preRight_[2] = {nullptr, nullptr};
     std::size_t capacity_ = 0;   // frames each channel holds
+    float frameSeconds_ = 0.0f;  // for the readouts
     bool prepared_ = false;
 
     State state_ = State::kEmpty;

@@ -4,8 +4,8 @@ add_subdirectory(${PROJECT_SOURCE_DIR}/Modules/JUCE ${CMAKE_BINARY_DIR}/Modules/
 
 # The desktop app: the host (AudioHost, RigPanel, MainComponent, the emulated
 # OLED in OledView) plus every rig in its menu with its own view and OLED
-# screen, if it has them (Rigs.cpp, Clouds/, Ui/). The host becomes its own
-# library when a second desktop app needs it.
+# screen, if it has them (Rigs.cpp, Clouds/, Stratus/, Ui/). The host becomes
+# its own library when a second desktop app needs it.
 juce_add_gui_app(wf_desktop
     PRODUCT_NAME "WeatherFields"
     COMPANY_NAME "WeatherFields"
@@ -25,6 +25,7 @@ target_sources(wf_desktop PRIVATE
     Source/Rigs.cpp
     Source/Clouds/PanelControls.cpp
     Source/Clouds/CloudsPanel.cpp
+    Source/Stratus/StratusPanel.cpp
 )
 
 target_compile_features(wf_desktop PRIVATE cxx_std_17)

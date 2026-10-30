@@ -18,12 +18,15 @@ using ParamId = std::uint16_t;
 // GUI queue that overflows, later MIDI thinning). A change of any other kind
 // may act on the transition (a Clouds quality change erases the recording
 // and releases freeze; a Toggle pulse is a gate press), so hosts deliver
-// every one, in order.
+// every one, in order. A Readout is never set: the engine reports it
+// through ParamValue() and the rig drops events for it, so hosts publish it
+// like any value but never send, replay or store it.
 enum class ParamKind : std::uint8_t {
     Continuous,  // any value in [min, max]
     Choice,      // an index in [0, max]: min is 0, max and def are integers
     Toggle,      // 0 or 1, holding until changed: min 0, max 1
     Trigger,     // a one-shot action whose value is unused: min 0, max 1
+    Readout,     // read-only, reported in [min, max] (a looper's position)
 };
 
 // One control of an engine, in plain units ("st", "dB" ...). A host builds
@@ -65,7 +68,8 @@ constexpr ParamTable MakeParamTable(const ParamSpec (&specs)[N]) noexcept {
 // the nearest index, turns a Toggle into 0 or 1 at 0.5, and sets a Trigger's
 // unused value to 1. Returns false, leaving `value` alone, for NaN or
 // infinity, which the caller drops: clamping NaN would silently move the
-// parameter to one end of its range.
+// parameter to one end of its range. Also false for a Readout, which no
+// value sets.
 inline bool ConstrainValue(const ParamSpec& spec, float& value) noexcept {
     if (!IsFinite(value)) return false;
     switch (spec.kind) {
@@ -82,6 +86,8 @@ inline bool ConstrainValue(const ParamSpec& spec, float& value) noexcept {
         case ParamKind::Trigger:
             value = 1.0f;
             return true;
+        case ParamKind::Readout:
+            return false;
     }
     return false;
 }
@@ -100,6 +106,7 @@ inline bool IsValidParamTable(const ParamTable& table) noexcept {
         if (spec.kind != ParamKind::Choice && spec.labels != nullptr) return false;
         switch (spec.kind) {
             case ParamKind::Continuous:
+            case ParamKind::Readout:
                 break;
             case ParamKind::Choice:
                 if (spec.min != 0.0f || spec.max != std::floor(spec.max) ||

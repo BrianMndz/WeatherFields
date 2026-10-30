@@ -964,6 +964,8 @@ void CheckMaximumLength() {
         offset += count;
     }
     ExpectState(rig, State::Recording, "still recording three frames before capacity");
+    Expect(std::abs(rig.Get().ParamValue(Engine::kPosition) - 29.997f) < 1e-4f,
+           "Position counts the first take's frames up to capacity");
     Stereo expected(blockFrames);
     for (std::size_t i = 3; i < blockFrames; ++i) {
         expected.left[i] = take.left[i - 3];
@@ -972,6 +974,7 @@ void CheckMaximumLength() {
     ExpectAudio(Render(rig, Pattern(blockFrames, prefix)), expected,
                 "full take starts playing frame zero within the same callback");
     ExpectState(rig, State::Playing, "capacity ends the first take and releases Record");
+    Expect(rig.Get().ParamValue(Engine::kLength) == 30.0f, "a full take's Length reads 30 s");
     ExpectAudio(Render(rig, Stereo(blockFrames)), Slice(take, blockFrames - 3, blockFrames),
                 "next callback continues playback from its advanced position");
     Restart(rig, capacity, rate);
@@ -1120,6 +1123,57 @@ void CheckSeamEdges() {
 
 }  // namespace
 
+// Position and Length follow the main playhead and the loop, in seconds, and
+// no event sets them.
+void CheckReadouts() {
+    constexpr float rate = 1000;
+    std::unique_ptr<unsigned char[]> memory;
+    Rig rig;
+    const Engine& engine = rig.Get();
+    const auto expect = [&engine](float position, float length, const char* description) {
+        Expect(std::abs(engine.ParamValue(Engine::kPosition) - position) < 1e-6f &&
+                   std::abs(engine.ParamValue(Engine::kLength) - length) < 1e-6f,
+               description);
+    };
+    const std::size_t bytes = rig.MemoryBytes(rate, kFrames);
+    memory.reset(new unsigned char[bytes]);
+    Expect(rig.Prepare(rate, kFrames, {memory.get(), bytes}) == wf::PrepareStatus::Ok,
+           "1 kHz prepares for the readout check");
+    expect(0, 0, "readouts start at zero");
+    Expect(!rig.Handle({Type::Param, 0, Engine::kPosition, 1}) &&
+               !rig.Handle({Type::Param, 0, Engine::kLength, 1}) &&
+               !rig.Handle({Type::Trigger, 0, Engine::kPosition, 1}),
+           "the rig drops events for readouts");
+    expect(0, 0, "dropped readout events change nothing");
+
+    Send(rig, Engine::kRecord, 1);
+    Wait(rig, 250);
+    expect(0.25f, 0, "the first take counts Position; Length stays 0 until it ends");
+    Send(rig, Engine::kRecord, 0);
+    expect(0, 0.25f, "ending the take sets Length and rewinds Position");
+    Wait(rig, 100);
+    expect(0.1f, 0.25f, "Position follows playback");
+    Wait(rig, 200);
+    expect(0.05f, 0.25f, "Position wraps at the loop's end");
+    Send(rig, Engine::kRecord, 1);
+    Wait(rig, 50);
+    expect(0.1f, 0.25f, "overdub keeps Length and moves Position");
+    Send(rig, Engine::kPlay, 0);
+    Wait(rig, 50);
+    Expect(std::abs(engine.ParamValue(Engine::kLength) - 0.25f) < 1e-6f,
+           "a stopped loop keeps its Length");
+    Send(rig, Engine::kPlay, 1);
+    expect(0, 0.25f, "Play from Stopped starts at the downbeat");
+    Clear(rig);
+    expect(0, 0, "Clear empties both readouts");
+    Send(rig, Engine::kRecord, 1);
+    Wait(rig, 30);
+    expect(0.03f, 0, "a take after Clear counts from zero");
+    Expect(rig.Prepare(rate, kFrames, {memory.get(), bytes}) == wf::PrepareStatus::Ok,
+           "1 kHz prepares again");
+    expect(0, 0, "Prepare resets the readouts");
+}
+
 int main() {
     std::unique_ptr<unsigned char[]> memory;
     Rig rig;
@@ -1127,7 +1181,7 @@ int main() {
     Expect(wf::IsValidParamTable(engine.Params()), "Stratus parameter table is valid");
 
     const wf::ParamTable& table = engine.Params();
-    Expect(table.count == 5, "Stratus exposes five parameters");
+    Expect(table.count == 7, "Stratus exposes seven parameters");
     for (std::size_t i = 0; i < table.count; ++i) {
         Expect(table.specs[i].id == i, "parameters are in ID order");
     }
@@ -1170,6 +1224,7 @@ int main() {
     CheckMaximumLength();
     CheckSeam();
     CheckSeamEdges();
+    CheckReadouts();
     CheckEvents(rig);
 
     Expect(rig.Prepare(kSampleRate, kFrames, {nullptr, 0}) == wf::PrepareStatus::MemoryTooSmall,

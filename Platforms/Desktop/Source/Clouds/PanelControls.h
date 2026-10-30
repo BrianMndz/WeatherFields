@@ -9,7 +9,8 @@ namespace desktop {
 namespace clouds_panel {
 
 // Controls and drawing for the copy of the Clouds front panel, ported from
-// CloudsEngine's JUCE editor (Source/PanelControls, e7738d9).
+// CloudsEngine's JUCE editor (Source/PanelControls, e7738d9). Other panels in
+// Clouds' look (Stratus) use them too.
 namespace colours {
 const juce::Colour kPanel{0xffe4e3e4};
 const juce::Colour kPanelShade{0xffd2d1d3};
@@ -51,13 +52,17 @@ private:
     Size size_;
 };
 
-// The illuminated FREEZE button: a toggle whose lens lights when on.
-class FreezeButton final : public juce::Button {
+// An illuminated button like FREEZE: a toggle whose lens lights in `colour`
+// when on, glowing from `core` at its centre.
+class LitButton final : public juce::Button {
 public:
-    FreezeButton();
+    LitButton(const juce::String& name, juce::Colour colour, juce::Colour core);
 
 private:
     void paintButton(juce::Graphics& g, bool isHighlighted, bool isDown) override;
+
+    juce::Colour colour_;
+    juce::Colour core_;
 };
 
 // The small black push buttons: B, C and the trigger. Like the module, a
@@ -91,7 +96,7 @@ private:
 
 // One of the four bicolour LEDs. Like the module's, each has a red and a
 // green element, from 0 (off) to 1; both together show yellow.
-class PanelLed final : public juce::Component {
+class PanelLed final : public juce::Component, public juce::SettableTooltipClient {
 public:
     void SetLight(float red, float green);
 
@@ -101,6 +106,19 @@ private:
     float red_ = 0.0f;
     float green_ = 0.0f;
 };
+
+// Panel drawing, in the panel's reference coordinates.
+juce::Font PanelFont(float height, bool bold = true);
+
+// Labels on the panel: plain black text, or white text on a coloured pill.
+void DrawLabel(juce::Graphics& g, const juce::String& text, juce::Point<float> centre,
+               juce::Colour colour = colours::kInk);
+void DrawPill(juce::Graphics& g, const juce::String& text, juce::Point<float> centre, juce::Colour colour);
+
+void DrawScrewHole(juce::Graphics& g, juce::Point<float> centre);
+
+// A simplified version of the ornamental rings behind the large knobs.
+void DrawOrnament(juce::Graphics& g, juce::Point<float> centre);
 
 }  // namespace clouds_panel
 }  // namespace desktop

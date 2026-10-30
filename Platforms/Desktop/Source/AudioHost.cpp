@@ -30,10 +30,15 @@ void AudioHost::SetRig(std::unique_ptr<Rig> rig) {
         }
     }
     published_.reset(new std::atomic<float>[params_.size()]);
+    handled_.reset(new std::atomic<std::uint32_t>[params_.size()]);
     for (std::size_t i = 0; i < params_.size(); ++i) {
         const ParamSpec& spec = *params_[i].spec;
         published_[i].store(spec.kind == ParamKind::Trigger ? 0.0f : spec.def, std::memory_order_relaxed);
+        handled_[i].store(0, std::memory_order_relaxed);
     }
+    sent_.assign(params_.size(), 0);
+    requested_.assign(params_.size(), 0.0f);
+    taken_.assign(params_.size(), 0);
     outbox_.Clear();
     viewFocus_ = kNoParam;
     restoreValues_ = false;
@@ -52,9 +57,12 @@ void AudioHost::SendFromGui(std::size_t index, float value) {
     if (index >= params_.size()) return;
     const ParamRef& param = params_[index];
     const bool trigger = param.spec->kind == ParamKind::Trigger;
-    outbox_.Send(ControlEvent{trigger ? ControlEvent::Type::Trigger : ControlEvent::Type::Param,
-                              static_cast<std::uint8_t>(param.slot), param.spec->id, trigger ? 1.0f : value},
-                 param.spec->kind);
+    const bool replaced =
+        outbox_.Send(ControlEvent{trigger ? ControlEvent::Type::Trigger : ControlEvent::Type::Param,
+                                  static_cast<std::uint8_t>(param.slot), param.spec->id, trigger ? 1.0f : value},
+                     param.spec->kind);
+    requested_[index] = trigger ? 1.0f : value;
+    if (!replaced) ++sent_[index];
 }
 
 void AudioHost::FlushGui() {
@@ -62,10 +70,7 @@ void AudioHost::FlushGui() {
 }
 
 float AudioHost::LatestValue(std::size_t index) const noexcept {
-    const ParamRef& param = params_[index];
-    float value = 0.0f;
-    if (outbox_.LatestWaiting(static_cast<std::uint8_t>(param.slot), param.spec->id, value)) return value;
-    return PublishedValue(index);
+    return IsPending(index) ? requested_[index] : PublishedValue(index);
 }
 
 AudioHost::Status AudioHost::GetStatus() const noexcept {
@@ -117,7 +122,7 @@ void AudioHost::Restore() {
     for (const bool choices : {true, false}) {
         for (std::size_t i = 0; i < params_.size(); ++i) {
             const ParamRef& param = params_[i];
-            if (param.spec->kind == ParamKind::Trigger) continue;
+            if (param.spec->kind == ParamKind::Trigger || param.spec->kind == ParamKind::Readout) continue;
             if ((param.spec->kind == ParamKind::Choice) != choices) continue;
             rig_->Handle(ControlEvent{ControlEvent::Type::Param, static_cast<std::uint8_t>(param.slot),
                                       param.spec->id, published_[i].load(std::memory_order_relaxed)});
@@ -140,7 +145,11 @@ void AudioHost::audioDeviceIOCallbackWithContext(const float* const* inputChanne
     const std::size_t frames = numSamples > 0 ? static_cast<std::size_t>(numSamples) : 0;
 
     if (prepared_) {
-        guiInput_.Drain(*rig_, kMaxGuiEventsPerCallback);
+        guiInput_.Drain(*rig_, kMaxGuiEventsPerCallback, [this](const ControlEvent& event) noexcept {
+            if (event.type != ControlEvent::Type::Param && event.type != ControlEvent::Type::Trigger) return;
+            const std::size_t index = FindParam(event.target, event.id);
+            if (index != kNoParam) ++taken_[index];
+        });
         Publish();
 
         // The rig always gets valid inputs: silence without an input, the
@@ -179,12 +188,15 @@ void AudioHost::audioDeviceIOCallbackWithContext(const float* const* inputChanne
 }
 
 // After the callback's events, so the panel sees the changes they caused.
+// Each handled count is released after the values: a panel that sees its
+// event handled also sees what it did.
 void AudioHost::Publish() noexcept {
     const Rig& rig = *rig_;
     for (std::size_t i = 0; i < params_.size(); ++i) {
         const ParamRef& param = params_[i];
         published_[i].store(rig.Slot(param.slot)->ParamValue(param.spec->id), std::memory_order_relaxed);
     }
+    for (std::size_t i = 0; i < params_.size(); ++i) handled_[i].store(taken_[i], std::memory_order_release);
 }
 
 }  // namespace desktop

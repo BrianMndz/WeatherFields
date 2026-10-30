@@ -106,11 +106,11 @@ const wf::ParamSpec ModeEngine::kSpecs[] = {
 const wf::ParamTable ModeEngine::kTable = wf::MakeParamTable(ModeEngine::kSpecs);
 
 // Sends a Param or Trigger event the way a host's GUI does, with the
-// parameter's kind from the engine's table.
-void Send(Outbox& outbox, wf::ParamId id, float value) {
+// parameter's kind from the engine's table; true if it replaced one waiting.
+bool Send(Outbox& outbox, wf::ParamId id, float value) {
     const wf::ParamSpec* spec = ModeEngine::Table().Find(id);
     const bool trigger = spec->kind == wf::ParamKind::Trigger;
-    outbox.Send(wf::ControlEvent{trigger ? wf::ControlEvent::Type::Trigger : wf::ControlEvent::Type::Param, 0,
+    return outbox.Send(wf::ControlEvent{trigger ? wf::ControlEvent::Type::Trigger : wf::ControlEvent::Type::Param, 0,
                                  id, value},
                 spec->kind);
 }
@@ -172,7 +172,7 @@ void CheckChoicesNotCoalesced() {
     f.Fill();
     Send(f.outbox, ModeEngine::kMode, 1.0f);
     Send(f.outbox, ModeEngine::kHold, 1.0f);
-    Send(f.outbox, ModeEngine::kMode, 0.0f);
+    Expect(!Send(f.outbox, ModeEngine::kMode, 0.0f), "a Choice never replaces a waiting one");
     f.CatchUp();
     Expect(f.Value(ModeEngine::kMode) == 0.0f && f.Value(ModeEngine::kHold) == 0.0f,
            "every Choice change arrives: the last one releases Hold");
@@ -190,10 +190,10 @@ void CheckTriggersKept() {
 void CheckContinuousCoalesced() {
     Fixture f;
     f.Fill();
-    Send(f.outbox, ModeEngine::kLevel, 0.1f);
+    Expect(!Send(f.outbox, ModeEngine::kLevel, 0.1f), "the first Level replaces nothing");
     Send(f.outbox, ModeEngine::kMode, 1.0f);
-    Send(f.outbox, ModeEngine::kLevel, 0.2f);
-    Send(f.outbox, ModeEngine::kLevel, 0.3f);
+    Expect(Send(f.outbox, ModeEngine::kLevel, 0.2f) && Send(f.outbox, ModeEngine::kLevel, 0.3f),
+           "later Levels report replacing the waiting one");
 
     float latest = 0.0f;
     Expect(f.outbox.IsWaiting(0, ModeEngine::kLevel), "Level waits");
