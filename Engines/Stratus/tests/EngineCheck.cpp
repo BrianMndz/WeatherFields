@@ -224,15 +224,19 @@ Stereo RenderInBlocks(Rig& rig, const Stereo& input) {
     return output;
 }
 
-// Steady-state checks wait for Thru without recording extra input. Call
-// before starting a take, and restart playback afterwards if position matters.
-void SetThru(Rig& rig, bool on, std::size_t fadeFrames = FadeFramesFor(kSampleRate)) {
-    Send(rig, Engine::kThru, on ? 1.0f : 0.0f);
-    for (std::size_t remaining = fadeFrames; remaining != 0;) {
+void Wait(Rig& rig, std::size_t frames) {
+    for (std::size_t remaining = frames; remaining != 0;) {
         const std::size_t count = remaining < kFrames ? remaining : kFrames;
         Render(rig, Stereo(count));
         remaining -= count;
     }
+}
+
+// Steady-state checks wait for Thru without recording extra input. Call
+// before starting a take, and restart playback afterwards if position matters.
+void SetThru(Rig& rig, bool on, std::size_t fadeFrames = FadeFramesFor(kSampleRate)) {
+    Send(rig, Engine::kThru, on ? 1.0f : 0.0f);
+    Wait(rig, fadeFrames);
 }
 
 void ExpectAudio(const Stereo& actual, const Stereo& expected, const char* description,
@@ -255,15 +259,29 @@ Stereo Repeat(const Stereo& loop, std::size_t frames, float gain = 1) {
     return expected;
 }
 
+Stereo LoopEnvelope(const Stereo& loop, std::size_t start, const std::vector<float>& gains) {
+    Stereo expected(gains.size());
+    for (std::size_t i = 0; i < gains.size(); ++i) {
+        const std::size_t pos = (start + i) % loop.left.size();
+        expected.left[i] = loop.left[pos] * gains[i];
+        expected.right[i] = loop.right[pos] * gains[i];
+    }
+    return expected;
+}
+
 void Reset(Rig& rig) {
     Clear(rig);
     Send(rig, Engine::kLoopLevel, 0);
     SetThru(rig, true);
 }
 
-void Restart(Rig& rig) {
+void Restart(Rig& rig, std::size_t length, float rate = kSampleRate) {
     Send(rig, Engine::kPlay, 0);
+    const std::size_t fadeFrames = FadeFramesFor(rate);
+    Wait(rig, fadeFrames);
     Send(rig, Engine::kPlay, 1);
+    // Let the fade-in settle for whole laps, so the next read starts at zero.
+    Wait(rig, ((fadeFrames + length - 1) / length) * length);
 }
 
 void CheckThruRamp() {
@@ -405,6 +423,7 @@ void CheckInputRampEdges() {
     SetThru(rig, false, 5);
     const auto startLoop = [&](std::size_t length) {
         Clear(rig);
+        Wait(rig, 5);
         Send(rig, Engine::kRecord, 1);
         Render(rig, Stereo(length));
         Send(rig, Engine::kRecord, 0);
@@ -412,7 +431,7 @@ void CheckInputRampEdges() {
     const auto expectLoop = [&](const std::vector<float>& values, const char* description) {
         Stereo expected(values.size());
         expected.left = expected.right = values;
-        Restart(rig);
+        Restart(rig, values.size(), 1000);
         ExpectAudio(Render(rig, Stereo(values.size())), expected, description, 1e-6f);
     };
 
@@ -450,15 +469,14 @@ void CheckInputRampEdges() {
 
     startLoop(17);
     Send(rig, Engine::kPlay, 0);
+    Wait(rig, 5);
     Send(rig, Engine::kRecord, 1);
     Render(rig, Stereo(5, 1));
     Send(rig, Engine::kPlay, 0);
     Send(rig, Engine::kPlay, 1);
     Render(rig, Stereo(17, 1));
-    // TODO(step 3): replace this expected cut with a fading punch while the
-    // loop fades out. The 1 -> 0 step is a temporary, audible limitation.
-    expectLoop({0.2f, 0.4f, 0.6f, 0.8f, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0},
-               "Record from Stopped punches in; Play off cuts input until step 3");
+    expectLoop({0.2f, 0.4f, 0.6f, 0.8f, 1, 0.8f, 0.6f, 0.4f, 0.2f, 0, 0, 0, 0, 0, 0, 0, 0},
+               "Play off keeps the punch fading while its tail playhead moves");
 
     Send(rig, Engine::kRecord, 1);
     Render(rig, Stereo(5, 1));
@@ -467,6 +485,7 @@ void CheckInputRampEdges() {
     Send(rig, Engine::kRecord, 1);
     Render(rig, newTake);
     Send(rig, Engine::kRecord, 0);
+    Wait(rig, 2);  // Finish the old tail without advancing the new loop.
     Render(rig, Stereo(3, 1));
     ExpectAudio(Render(rig, Stereo(3)), newTake,
                 "Clear cancels pending writes and the next first take stays unscaled");
@@ -494,9 +513,223 @@ void CheckInputRampReprepare() {
     Render(rig, Stereo(2));  // Shorter than the five-frame fade.
     Send(rig, Engine::kRecord, 0);
     Render(rig, Stereo(4, 1));
-    Restart(rig);
+    Restart(rig, 2, rate);
     ExpectAudio(Render(rig, Stereo(2)), Stereo(2),
                 "Prepare resets the old input punch before an immediate short take");
+}
+
+void CheckLoopRamp() {
+    struct Rate { float sampleRate; std::size_t fadeFrames; };
+    const Rate rates[] = {
+        {100, 1}, {1000, 5}, {8200, 41}, {44100, 221}, {48000, 240}, {192000, 960}};
+    for (const Rate& rate : rates) {
+        Rig rig;
+        const std::size_t bytes = rig.MemoryBytes(rate.sampleRate, kFrames);
+        std::unique_ptr<unsigned char[]> memory(new unsigned char[bytes]);
+        Expect(rig.Prepare(rate.sampleRate, kFrames, {memory.get(), bytes}) == wf::PrepareStatus::Ok,
+               "loop ramp rig prepares");
+        SetThru(rig, false, rate.fadeFrames);
+        Stereo take(2 * rate.fadeFrames + 7, 1);
+        for (float& sample : take.right) sample = -0.5f;
+        Send(rig, Engine::kRecord, 1);
+        RenderInBlocks(rig, take);
+        Send(rig, Engine::kRecord, 0);
+        ExpectAudio(Render(rig, Stereo(2)), Repeat(take, 2),
+                    "ending a first take starts at full loop gain");
+        for (bool on : {false, true, false}) {
+            Send(rig, Engine::kPlay, on ? 1 : 0);
+            Send(rig, Engine::kPlay, on ? 1 : 0);
+            ExpectState(rig, on ? State::Playing : State::Stopped,
+                        "Play readback changes immediately, duplicate is a no-op");
+            Render(rig, Stereo(0));
+            std::vector<float> gains(rate.fadeFrames + 2, on ? 1 : 0);
+            for (std::size_t i = 0; i < rate.fadeFrames; ++i) {
+                const float progress = static_cast<float>(i + 1) / rate.fadeFrames;
+                gains[i] = on ? progress : 1 - progress;
+            }
+            const Stereo actual = RenderInBlocks(rig, Stereo(gains.size()));
+            ExpectAudio(actual, LoopEnvelope(take, 0, gains),
+                        "loop start/stop follows a five-ms envelope across callbacks", 1e-6f);
+            float previous = on ? 0 : 1;
+            for (std::size_t i = 0; i < gains.size(); ++i) {
+                Expect(std::abs(actual.left[i] - previous) <= 1.0f / rate.fadeFrames + 1e-6f,
+                       "loop gain neighbour difference is bounded");
+                previous = actual.left[i];
+            }
+            Expect(actual.left[rate.fadeFrames - 1] == (on ? 1 : 0) &&
+                       actual.right[rate.fadeFrames - 1] == (on ? -0.5f : 0),
+                   "loop ramp reaches exact endpoints on time in both channels");
+        }
+        Restart(rig, take.left.size(), rate.sampleRate);
+        Clear(rig);
+        Clear(rig);
+        ExpectState(rig, State::Empty, "Clear reads Empty before the tail finishes");
+        Send(rig, Engine::kPlay, 1);
+        ExpectState(rig, State::Empty, "Clear refuses Play while its old tail sounds");
+        std::vector<float> gains(rate.fadeFrames + 2, 0);
+        for (std::size_t i = 0; i < rate.fadeFrames; ++i) {
+            gains[i] = 1 - static_cast<float>(i + 1) / rate.fadeFrames;
+        }
+        ExpectAudio(RenderInBlocks(rig, Stereo(gains.size())), LoopEnvelope(take, 0, gains),
+                    "Clear fades out the old loop then stays silent", 1e-6f);
+        Send(rig, Engine::kPlay, 1);
+        ExpectState(rig, State::Empty, "Clear remains Empty after its tail finishes");
+    }
+}
+
+void CheckLoopTailCases() {
+    Rig rig;
+    const std::size_t bytes = rig.MemoryBytes(1000, kFrames);
+    std::unique_ptr<unsigned char[]> memory(new unsigned char[bytes]);
+    Expect(rig.Prepare(1000, kFrames, {memory.get(), bytes}) == wf::PrepareStatus::Ok,
+           "loop tail rig prepares");
+    SetThru(rig, false, 5);
+    const Stereo old = Pattern(7, 41);
+    const auto startLoop = [&](const Stereo& take, std::size_t position) {
+        Clear(rig);
+        Wait(rig, 5);
+        Send(rig, Engine::kRecord, 1);
+        RenderInBlocks(rig, take);
+        Send(rig, Engine::kRecord, 0);
+        Wait(rig, position);
+    };
+
+    const Stereo unity(7, 1);
+    startLoop(unity, 0);
+    Send(rig, Engine::kLoopLevel, -6.02f);
+    const float levelGain = std::pow(10.0f, -6.02f / 20.0f);
+    ExpectAudio(Render(rig, Stereo(1)), Stereo(1, levelGain),
+                "loop plays at the selected level before Stop", 1e-6f);
+    Send(rig, Engine::kPlay, 0);
+    ExpectAudio(Render(rig, Stereo(2)), LoopEnvelope(unity, 0, {0.8f * levelGain, 0.6f * levelGain}),
+                "Stop tail keeps Loop Level instead of jumping to full gain", 1e-6f);
+    Send(rig, Engine::kLoopLevel, -60);
+    ExpectAudio(Render(rig, Stereo(3)), Stereo(3),
+                "Loop Level changes also apply to a running tail");
+    Send(rig, Engine::kLoopLevel, 0);
+
+    // Row 1: Stopped drains the moving tail, then restarts at the downbeat.
+    startLoop(old, 3);
+    Send(rig, Engine::kPlay, 0);
+    ExpectAudio(Render(rig, Stereo(2)), LoopEnvelope(old, 3, {0.8f, 0.6f}),
+                "Stop keeps the old playhead moving", 1e-6f);
+    Send(rig, Engine::kPlay, 0);
+    ExpectAudio(Render(rig, Stereo(4)), LoopEnvelope(old, 5, {0.4f, 0.2f, 0, 0}),
+                "duplicate Stop does not restart the tail fade, including a wrap", 1e-6f);
+    Send(rig, Engine::kPlay, 1);
+    ExpectAudio(Render(rig, Stereo(5)), LoopEnvelope(old, 0, {0.2f, 0.4f, 0.6f, 0.8f, 1}),
+                "Play after a completed Stop fades in from frame zero", 1e-6f);
+
+    // Row 2: Playing waits for the tail's zero, then fades in at frame zero.
+    startLoop(old, 3);
+    Send(rig, Engine::kPlay, 0);
+    Render(rig, Stereo(2));
+    Send(rig, Engine::kPlay, 1);
+    Send(rig, Engine::kPlay, 1);
+    ExpectState(rig, State::Playing, "pending Play reads on during a fade-out");
+    Render(rig, Stereo(0));
+    ExpectAudio(Render(rig, Stereo(3)), LoopEnvelope(old, 5, {0.4f, 0.2f, 0}),
+                "Play mid-fade completes the old tail before restarting", 1e-6f);
+    ExpectAudio(Render(rig, Stereo(5)), LoopEnvelope(old, 0, {0.2f, 0.4f, 0.6f, 0.8f, 1}),
+                "pending Play resets only at zero and then fades in", 1e-6f);
+
+    // A partial fade-in reverses at its current gain, rather than full gain.
+    Send(rig, Engine::kPlay, 0);
+    Wait(rig, 5);
+    Send(rig, Engine::kPlay, 1);
+    Render(rig, Stereo(2));
+    Send(rig, Engine::kPlay, 0);
+    ExpectAudio(Render(rig, Stereo(3)), LoopEnvelope(old, 2, {0.2f, 0, 0}),
+                "Stop during fade-in drains only the current gain", 1e-6f);
+
+    // Row 3: repeated Clear does not restart the fade or permit Play.
+    startLoop(old, 2);
+    Clear(rig);
+    Render(rig, Stereo(2));
+    Clear(rig);
+    ExpectAudio(Render(rig, Stereo(3)), LoopEnvelope(old, 4, {0.4f, 0.2f, 0}),
+                "Clear tail retains its own length and moving playhead", 1e-6f);
+    Send(rig, Engine::kPlay, 1);
+    ExpectState(rig, State::Empty, "Clear has no loop when its tail ends");
+
+    // Row 4: a new take records now; the old tail owns its own playhead.
+    startLoop(old, 5);
+    Clear(rig);
+    Send(rig, Engine::kRecord, 1);
+    const Stereo take = Pattern(9, 193);
+    ExpectAudio(Render(rig, Slice(take, 0, 2)), LoopEnvelope(old, 5, {0.8f, 0.6f}),
+                "Clear then Record starts the new take while the old tail sounds", 1e-6f);
+    ExpectAudio(Render(rig, Slice(take, 2, 3)), LoopEnvelope(old, 0, {0.4f, 0.2f, 0}),
+                "old tail survives wrap into samples overwritten by the new take", 1e-6f);
+    ExpectState(rig, State::Recording, "old tail completion does not change the new take state");
+    ExpectAudio(Render(rig, Slice(take, 5, 4)), Stereo(4),
+                "new take continues silently after the old tail ends");
+    Send(rig, Engine::kRecord, 0);
+    ExpectAudio(Render(rig, Stereo(9)), take,
+                "old tail completion preserves the new take position, length and content");
+
+    // Even a one-frame take can finish before a two-frame old loop fades.
+    const Stereo tinyOld = Pattern(2, 11);
+    startLoop(tinyOld, 0);
+    Clear(rig);
+    Send(rig, Engine::kRecord, 1);
+    const Stereo tinyNew = Pattern(1, 199);
+    ExpectAudio(Render(rig, tinyNew), LoopEnvelope(tinyOld, 0, {0.8f}),
+                "tiny new take begins immediately during Clear", 1e-6f);
+    Send(rig, Engine::kRecord, 0);
+    ExpectAudio(Render(rig, Stereo(4, 1)), LoopEnvelope(tinyOld, 1, {0.6f, 0.4f, 0.2f, 0}),
+                "finished new take waits while the original old tail wraps repeatedly", 1e-6f);
+    ExpectAudio(Render(rig, Stereo(4)), Repeat(tinyNew, 4),
+                "new take starts at full gain after the old tail, without being erased");
+
+    startLoop(tinyOld, 0);
+    Clear(rig);
+    Send(rig, Engine::kRecord, 1);
+    Render(rig, tinyNew);
+    // Finish Playing: the unheard take has full loop gain, so only
+    // BeginTail's active-tail guard can prevent replacing the original tail.
+    Send(rig, Engine::kRecord, 0);
+    ExpectState(rig, State::Playing, "new take finishes Playing while its predecessor fades");
+    Clear(rig);
+    Clear(rig);
+    Send(rig, Engine::kRecord, 1);
+    const Stereo replacement = Pattern(2, 211);
+    ExpectAudio(Render(rig, replacement), LoopEnvelope(tinyOld, 1, {0.6f, 0.4f}),
+                "repeated Clear and a replacement take retain the original cached tail", 1e-6f);
+    Send(rig, Engine::kPlay, 0);
+    ExpectAudio(Render(rig, Stereo(2)), LoopEnvelope(tinyOld, 1, {0.2f, 0}),
+                "new take can finish Stopped without cutting or replacing the old tail", 1e-6f);
+    Send(rig, Engine::kPlay, 1);
+    ExpectAudio(Render(rig, Stereo(5)),
+                LoopEnvelope(replacement, 0, {0.2f, 0.4f, 0.6f, 0.8f, 1}),
+                "tail completion preserves a replacement take that already stopped", 1e-6f);
+
+    // Record requested during Stop waits with Play, then punches in at zero.
+    startLoop(old, 0);
+    Send(rig, Engine::kPlay, 0);
+    Render(rig, Stereo(2));
+    Send(rig, Engine::kRecord, 1);
+    ExpectState(rig, State::Overdubbing, "pending overdub reads Record on immediately");
+    ExpectAudio(Render(rig, Stereo(3, 1)), LoopEnvelope(old, 2, {0.4f, 0.2f, 0}),
+                "pending overdub does not reverse or write into a draining Stop tail", 1e-6f);
+    Render(rig, Stereo(5, 1));
+    Send(rig, Engine::kRecord, 0);
+    Wait(rig, 5);
+    Stereo overdubbed = old;
+    for (std::size_t i = 0; i < 5; ++i) {
+        overdubbed.left[i] += static_cast<float>(i + 1) / 5;
+        overdubbed.right[i] += static_cast<float>(i + 1) / 5;
+    }
+    Restart(rig, old.left.size(), 1000);
+    ExpectAudio(Render(rig, Stereo(7)), overdubbed,
+                "pending overdub begins its input ramp on the restarted loop", 1e-6f);
+
+    // Re-Prepare must drop an active tail and its scratch metadata.
+    Send(rig, Engine::kPlay, 0);
+    Render(rig, Stereo(1));
+    Expect(rig.Prepare(1000, kFrames, {memory.get(), bytes}) == wf::PrepareStatus::Ok,
+           "Prepare succeeds during a loop tail");
+    ExpectAudio(Render(rig, Stereo(6)), Stereo(6), "Prepare removes the old tail immediately");
 }
 
 void CheckPlayback(Rig& rig) {
@@ -521,22 +754,23 @@ void CheckPlayback(Rig& rig) {
     ExpectAudio(Render(rig, live), Repeat(take, 31), "loop plays raw recorded samples and wraps");
 
     Send(rig, Engine::kPlay, 0);
+    Wait(rig, FadeFramesFor(kSampleRate));
     ExpectAudio(Render(rig, live), Stereo(31), "Stopped with Thru off is silent");
     SetThru(rig, true);
     ExpectAudio(Render(rig, live), live, "Stopped passes live input with Thru on");
     SetThru(rig, false);
-    Send(rig, Engine::kPlay, 1);
+    Restart(rig, take.left.size());
     ExpectAudio(Render(rig, live), Repeat(take, 31), "Play from Stopped restarts at frame zero");
 
-    Restart(rig);
+    Restart(rig, take.left.size());
     Send(rig, Engine::kLoopLevel, -6.02f);
     ExpectAudio(Render(rig, live), Repeat(take, 31, 0.5f), "-6.02 dB is approximately half gain",
                 2e-5f);
-    Restart(rig);
+    Restart(rig, take.left.size());
     Send(rig, Engine::kLoopLevel, -60);
     ExpectAudio(Render(rig, live), Stereo(31), "bottom of Loop Level is exactly silent");
     SetThru(rig, true);
-    Restart(rig);
+    Restart(rig, take.left.size());
     Send(rig, Engine::kLoopLevel, 0);
     Stereo mix = Repeat(take, 31);
     for (std::size_t i = 0; i < 31; ++i) {
@@ -551,7 +785,7 @@ void CheckPlayback(Rig& rig) {
     ExpectAudio(Render(rig, shorter), shorter, "Recording monitors input with Thru on");
     Send(rig, Engine::kPlay, 0);
     SetThru(rig, false);
-    Send(rig, Engine::kPlay, 1);
+    Restart(rig, shorter.left.size());
     ExpectAudio(Render(rig, live), Repeat(shorter, 31),
                 "new shorter take never reads stale tail after Clear");
 }
@@ -574,7 +808,7 @@ void CheckOverdub(Rig& rig) {
     Render(rig, take);
     Send(rig, Engine::kRecord, 0);
     SetThru(rig, false);
-    Restart(rig);
+    Restart(rig, take.left.size());
     Send(rig, Engine::kLoopLevel, -60);
     Send(rig, Engine::kRecord, 1);
     settleInput();
@@ -601,7 +835,7 @@ void CheckOverdub(Rig& rig) {
         sum.right[j] += next.right[i];
     }
     SetThru(rig, true);
-    Restart(rig);
+    Restart(rig, take.left.size());
     Send(rig, Engine::kRecord, 1);
     settleInput();
     ExpectAudio(Render(rig, next), expected,
@@ -609,7 +843,7 @@ void CheckOverdub(Rig& rig) {
     Send(rig, Engine::kPlay, 0);
     ExpectState(rig, State::Stopped, "stopping overdub releases Record");
     SetThru(rig, false);
-    Send(rig, Engine::kPlay, 1);
+    Restart(rig, take.left.size());
     ExpectAudio(Render(rig, Stereo(31)), Repeat(sum, 31),
                 "overdub sums persist and restart from zero");
 }
@@ -659,6 +893,19 @@ void CheckInPlace() {
     compare(31, 139);
     send(Engine::kLoopLevel, -60);
     compare(32, 171);
+    send(Engine::kLoopLevel, 0);
+    Clear(separate);
+    Clear(inPlace);
+    send(Engine::kRecord, 1);
+    compare(2, 203);  // First take overwrites a prefix while the tail wraps.
+    send(Engine::kRecord, 0);
+    compare(32, 205);  // The finished take waits for that same tail.
+    Clear(separate);
+    Clear(inPlace);
+    send(Engine::kRecord, 1);
+    for (std::size_t i = 0; i < 4; ++i) compare(32, 237 + i * 32);
+    send(Engine::kRecord, 0);
+    compare(32, 365);  // New playback after the original tail has finished.
 }
 
 void CheckMaximumLength() {
@@ -693,7 +940,7 @@ void CheckMaximumLength() {
     ExpectState(rig, State::Playing, "capacity ends the first take and releases Record");
     ExpectAudio(Render(rig, Stereo(blockFrames)), Slice(take, blockFrames - 3, blockFrames),
                 "next callback continues playback from its advanced position");
-    Restart(rig);
+    Restart(rig, capacity, rate);
     // Check the whole take, including its last three frames and the wrap.
     for (std::size_t offset = 0; offset < capacity + blockFrames; offset += blockFrames) {
         Stereo wrapped(blockFrames);
@@ -750,6 +997,8 @@ int main() {
     CheckInputRamp();
     CheckInputRampEdges();
     CheckInputRampReprepare();
+    CheckLoopRamp();
+    CheckLoopTailCases();
     CheckPlayback(rig);
     CheckOverdub(rig);
     CheckInPlace();

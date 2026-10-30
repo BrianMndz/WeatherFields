@@ -50,7 +50,7 @@ Daisy Seed3, alone or combined into one system.
 | Build skeleton | Top-level CMake, presets `dev` and `desktop`, `cmake/WeatherFields.cmake`, CTest. |
 | Core | Header-only `wf::core`, all compiling for the board with Clang 3.9: `wf/Dsp.h` (`IsFinite`, checked as built and under `-O3 -ffast-math`; `ApplyGainRamp`, JUCE's `applyGainRamp` semantics; `PeakFollower`, the Clouds module's meter, 10 ms attack and 250 ms release, NaN-safe); `wf/Params.h` (`ParamId`, `ParamKind`, `ParamSpec` with static choice labels, `ParamTable`, `ConstrainValue`, which rejects non-finite values, and `IsValidParamTable`, which also requires a label per Choice index); `wf/Events.h` (8-byte POD `ControlEvent`); `wf/SpscQueue.h` (lock-free, power-of-two capacity, trivially copyable items, `PopAvailable()` for the consumer; its own header because the recorder will use it too). `wf/ControlOutbox.h` (`ControlOutbox<N>`: a producer that must not lose events, the GUI's on both hosts; events wait in order when the input is full, only Continuous values coalesce; checked with both review cases and a mutation that restores the old bug). `wf/ControlInput.h` (`ControlInput<N>`: one producer's queue; `Drain(rig, max)` takes at most `max` and never more than was queued when it began, so a refilling producer cannot stretch the callback; overflow and dropped counters; `Discard()` for rig swaps). The queue's two-thread check also runs clean under ThreadSanitizer, which flags a copy with relaxed ordering. `wf/Engine.h` (`wf::Engine`: `Name`, `Params`, `MemoryBytes`, `Prepare`, `Handle`, `ParamValue` (audio-thread readback, including changes the engine makes itself), `Process`; silent and deaf until a successful `Prepare()`; input buffers never null; `MemoryBlock`, `PrepareStatus`, `CheckMemory`, 16-byte `kMemoryAlignment`); `wf/Rig.h` (`ConstrainEvent`, `wf::Rig` with a const `Slot()` and a private `MutableSlot()` that only its non-virtual `Handle()` uses, so every change is validated; the rig-swap procedure; `SoloRig<E>`), checked with a gain engine (readback, lifecycle) and compiled for the board with `-fno-exceptions -fno-rtti`. |
 | Engines/Clouds | `wf::clouds`: CloudsEngine's `Engine/` from `e7738d9`, now in namespace `wf::clouds` with its `Engine` class renamed `Module` (`Module.h`, `Module.cpp`; macro `WF_CLOUDS_NODISCARD`; MI code written `::clouds::`). Otherwise unchanged: the 16 render hashes still match and `check.sh` passes. Its five checks pass in Debug and Release; their only other change is `std::byte` → `unsigned char` for the test arenas, as checks compile as C++14. `wf::clouds::Engine` implements `wf::Engine` around it: 15 parameters (IDs 0-8 the knobs in module order, 9 IN GAIN, 10 Freeze, 11 Trigger, 12 Gate, 13 Quality, 14 Mode) with JUCE's ranges and defaults, applied from the table in `Prepare()`; labels for quality ("Stereo 16-bit" ...) and mode ("Granular", "Stretch", "Looping Delay", "Spectral"); `ParamValue()` reads quality and mode from the Module; one 184,192-byte arena for both Module arenas; 32/44.1/48 kHz through `SampleRateAdapter` with `ServicePolicy::AfterEachBlock`; quality and mode changes in event order with `Service()` at once, releasing freeze when they erase; a second `Prepare()` rebuilds the Module in place. `wf_clouds_engine_check`: all 16 quality × mode renders through the rig are byte-identical to the Module's own, 32 frames later (the seven that use randomness fail with another seed), plus defaults, clamping at the rig, the freeze rules, readback (a quality change reads back with freeze released) and IN GAIN at 48 kHz. |
-| Engines/Stratus | Stratus, the looper (`wf::stratus::Engine`), written by the user as lesson 1 (2026-10-26), committed up to `22b0600`; in the desktop menu as a solo rig (generic panel, OLED test pattern), listened 2026-10-30: works. Target `wf::stratus` (`src/Engine.cpp`, links `wf::core`), manifest `stratus`. `MemoryBytes()`: 30 s, two channels, each aligned; 0 for an unsupported rate. `Prepare()`: rates up to 192 kHz (sizes fit Bela's 32-bit `size_t`), checks before carving, the buffer never cleared. Parameters in ID order: 0 Play, 1 Record (Toggles the engine sets itself), 2 Clear (Trigger), 3 Loop Level (-60 to 0 dB, default 0; -60 is gain 0), 4 Thru (default on). Transitions are private helpers, a `switch (state_)` each, duplicates no-ops: `OnRecord()`, `OnPlay()`, `OnClear()` (O(1)) and `FinishFirstTake(next)` (length from the frames written; to Playing on Record off or at capacity, to Stopped on Play off; a zero-frame take goes back to Empty). `ParamValue()` derives Play (Recording, Playing, Overdubbing) and Record (Recording, Overdubbing) from the state through `PlayOn()`/`RecordOn()`, readback only. `Handle()`: deaf before `Prepare()`; Loop Level's gain computed once per event. `Process()`, with 5 ms Thru and overdub input ramps (rounded up to whole frames): silent before `Prepare()`; per frame (the state can change mid-block when the take fills the buffer), both inputs read before either output is written; output `in × dryGain`, plus the loop × Loop Level while Playing or Overdubbing, read before adding input × inputGain; Playing keeps writing during punch-out; the first take records the input before Thru; wrap at `length_`; overdubs sum unbounded. `wf_stratus_engine_check`: the table; the whole Record/Play table through a `SoloRig` with duplicates; Clear from every state; zero-frame takes; the rig's constraints; deafness before `Prepare()` and after a failed one; playback, overdub, Thru and Loop Level sample by sample; in-place byte-identical to separate buffers in every state; the maximum length at 1 kHz (30,000 frames). Mutation-tested 2026-10-26: all 17 mutants caught (before ramps). Thru ramp added 2026-10-30: integer gain position, one step per frame before use, exact endpoints, reverses from its current position; readback follows the target immediately. Checks cover 100 Hz, 1/44.1/48/192 kHz, callback boundaries, zero frames, duplicates, reversal, Clear and re-Prepare; existing audio checks settle Thru before steady-state assertions. Overdub input ramp added 2026-10-30: the shared `AdvanceRamp()` moves each gain once per frame; Record off reads back immediately while Playing writes the input fade-out, including across wraps; re-punch reverses from the current gain. First takes stay full-level. Until step 3, Play stop cuts the input gain and can write a click into the retained loop; code and checks mark this temporary behavior for replacement by a moving playhead and fading punch. Clear permanently cancels pending writes because the loop is discarded. Buffer readback checks both ramps at six rates, exact endpoints, duplicates, reversal, zero frames, Record from Stopped, stop/Clear cancellation and full-level first takes. `SetThru()` derives its default settling duration from `kSampleRate`. Desktop listening pending for both ramps. |
+| Engines/Stratus | Stratus, the looper (`wf::stratus::Engine`), in the desktop menu as a solo rig (generic panel, OLED test pattern). Engine without ramps listened 2026-10-30: works; all three ramp steps implemented 2026-10-30 (user-authorized), listening pending. Target `wf::stratus`, manifest `stratus`, C++14 on `wf::core`. Parameters: 0 Play, 1 Record, 2 Clear, 3 Loop Level (-60 to 0 dB, -60 means silence), 4 Thru (default on); Play/Record readback follows logical state immediately. `MemoryBytes()`: aligned stereo float loop for 30 s, plus aligned stereo tail scratch of `ceil(rate × 0.005)` frames (1,920 extra bytes at 48 kHz); 0 for unsupported rates. `Prepare()`: positive rates up to 192 kHz, validation before carving, no buffer clearing; resets all gains, tail metadata and state. Silent/deaf until prepared, including after failure. Thru, overdub input and loop gain ramp per frame in 5 ms (rounded up); integer positions and `AdvanceRamp()` give exact endpoints. Loop Level affects output only (`loopLevelGain_`). First takes write full input and start playback at full gain; first-take and wrap edges await the seam crossfade. Overdub reads the old loop before adding input × inputGain; Record off writes the fade-out while Playing. Stop moves playback to `Tail` (position, copied length, fade position), keeps the punch fading on its moving head, resets at zero. Play/Record during Stop wait for zero, then restart from frame zero and fade in. Clear marks the tail discarded and permanently cancels its input writes; the main length resets immediately while the tail uses its copied length; Empty rejects Play. Record after Clear starts immediately; its position/length survive tail completion. A take finishing early waits for the tail, then plays at full gain. Only one playback head sounds at a time. Tail scratch preserves old samples incrementally before a new take overwrites them, including repeated Clear and short-loop wrapping; at most one stereo sample saved per frame, Clear remains O(1). Read both inputs before either output (in-place). Checks: transitions/duplicates, lifecycle, maximum 30,000 frames at 1 kHz, first-take/raw overdub content, Thru/Loop Level, six rates (100 Hz, 1/8.2/44.1/48/192 kHz), all four zero-gain cases, partial fades, pending overdub, repeated Clear, short finished/stopped new takes, tail overwrite preservation, re-Prepare mid-punch/tail, and byte-identical in-place output including Clear/new takes. All 17 dev checks, desktop build, Bela Clang 3.9 syntax check, optimized `-O3 -ffast-math` and ASan/UBSan Stratus checks pass. Six targeted tail mutants caught; two review mutants now caught by permanent checks for tail Loop Level and Clear after an unheard take finishes Playing. |
 | Tools/Render | `wf_render_clouds`: CloudsEngine's CLI (`e7738d9`), only its include and name changed. CTest `wf_render_clouds_references` renders all 16 quality × mode combinations and compares them with `clouds_references.sha256`, taken from CloudsEngine's `clouds_cli` built from `e7738d9`: byte-identical in Debug and Release, and equal to CloudsEngine's recorded table. The references hold for macOS arm64 with Apple Clang. |
 | Desktop host | `wf_desktop` (`WeatherFields.app`, `desktop` preset): rig menu (Clouds' and Stratus' `SoloRig`s), audio settings saved between runs, status line (rate, block, CPU, a rig's failed `Prepare()`, GUI overflow and dropped counts), and the rig's view (`RigView`): its own if `RigEntry::makeView` gives one, else `RigPanel` generated from `ParamSpec` (knobs, label menus, latching toggles, trigger buttons). Clouds' view is `Clouds/CloudsPanel`, CloudsEngine's front panel (`e7738d9`) ported to the host: same drawing, B/C/TRIG behaviour, LED modes and mode tooltips, but it sends events and shows published values, so engine-made changes appear; its meter is the host's input level times IN GAIN, or the output level while frozen. Tested 2026-10-18: behaves as in CloudsEngine. `AudioHost` runs the rig in JUCE's callback: GUI `ControlInput` drained (at most 32 per callback), then `ParamValue()` published to atomics, then `Process()` from scratch buffers, with `PeakFollower`s on the rig's input and output in pieces of at most the prepared block; silent input when there is none, mono input to both sides. The rig is prepared in `audioDeviceAboutToStart()`; a device restart replays the published values as events, Choices first. While a `Prepare()` has failed, the callback is silent and neither drains nor publishes, so queued events wait and the last valid values survive. Rig swaps detach the callback, discard queued events, destroy the old rig before making the new one. When the GUI's input is full, its events wait in order; only a Continuous parameter's newer value replaces its waiting one (moving to the back), while Choice, Toggle and Trigger events are all kept, since they can act on transitions; the panel shows only published values. Builds clean with `-Wall -Wextra`. Generic panel listened 2026-10-18: works. "OLED..." opens the emulated screen (`OledView`, in its own window): a panel-less `wf::oled::Display` drawing the current rig's screen (`RigEntry::makeScreen`; Clouds' `OledScreen`, else the test pattern) from the host's published values and levels at the board's 25 frames a second, shown at the largest integer scale with nearest-neighbour scaling; lit pixels blue as on the board's panel, a click cycles blue, white, yellow. Test pattern looked at 2026-10-18: opens and animates. Clouds' screen looked at 2026-10-18: works, follows the panel. The panel's quality and mode displays set the host's view focus (`AudioHost::SetViewFocus()`, message thread, cleared by a rig swap and the panel's destructor), which the OLED's readout passes to the screen. |
 | Bela host | `Platforms/Bela/Host`: `BelaHost.cpp` (Bela's `setup()`/`render()`/`cleanup()` around the app's `wf::bela::AppRig()` and `AppScreen()` (its OLED screen, or null for the test pattern), chosen at link time; 32-frame default period; rig memory allocated in `setup()`; failure refuses to start; `render()` drains the panel's `ControlInput` (at most 32 events), publishes `ParamValue()`s, processes Bela's buffers directly, meters input and output) and `GuiLink` (the browser panel over Bela's Gui library, generic by slot and ID: `wf-hello`/`wf-state`, `wf-param`, `wf-trigger`, `wf-focus` (what the page's display presents, into `Published::focus` with its time; the page repeats it every second while it lasts and the OLED ignores one older than 2.5 s, so a closed page leaves none; the focus has an owner, a random id per page: a new selection takes it, a repeat only refreshes its owner's or takes a lapsed one, only the owner clears it, so two open pages do not fight (review finding, confirmed with the reviewer's harness, adapted for page ids, and the real `sketch.js` in Node)), and `wf-update` about 30 times a second with levels and changed values; the WebSocket thread and the sender thread share one `ControlOutbox` under a mutex; only the sender thread sends; it is never destroyed, and `Stop()` closes it under the mutex, since Bela's Gui cannot stop its WebSocket server synchronously). App `bela_clouds` (`Apps/Clouds`: `CloudsApp.cpp`, and `sketch.js`, CloudsEngine's panel ported onto `wf-*` messages, with the playback mode display added; it keeps the board's latest report per control and shows it once the control is not held (500 ms after a local edit, or while dragging), and re-sends TRIG's gate on every connection). Built and run on the board 2026-10-18: starts at 44.1 kHz, 32 frames, audio thread MSW 1; the protocol checked end to end over a tunnel (state, updates, clamping at the rig, freeze released by a quality change, invalid messages ignored). Not yet listened to through the browser panel. The Bela review fixes (below) are checked locally only and not yet deployed. The OLED (`OledLink`, `I2cPanel`): every app drives it from `setup()` to `cleanup()` on an ordinary Linux thread (never `render()`), drawing the app's screen from the published values and levels (`bela_clouds`: Clouds' `OledScreen`) and sending it whole at up to `WF_OLED_FPS` (default 25) on I2C bus `WF_OLED_I2C_BUS` (1) at `WF_OLED_I2C_ADDRESS` (0x3C), all overridable with deploy's `-D`; it prints fps and draw/send times (mean, max) every 5 s. `I2cPanel` is our u8x8 glue: one `write()` per u8x8 transfer, state per display through u8x8's user pointer (defined on Linux), errors kept for the frame to check. A bus that cannot be opened, or a panel that does not answer, is printed once and never stops audio; the thread retries once a second and re-initialises the panel; `cleanup()` blanks it and joins. Run on the board 2026-10-18 with Clouds: the panel is at 0x3C on bus 1 (`i2cdetect`), the pattern shows as on the desktop; at a 30 fps cap it sent back to back at 27.2-28.2 fps, send 35.1-36.8 ms mean (40-51 ms max), draw 0.34-0.41 ms mean (up to 2.1 ms). About 1.16 KB a frame (1 KB of data in 24-byte transfers, plus addresses and commands), so the bus runs at 400 kHz with about 9 ms of per-transfer overhead. At the 25 fps default: a steady 24.9-25.0 fps, send 35.6-35.8 ms mean (up to 45 ms after start-up), draw about 0.33 ms mean. The outline reaches all four edges of the panel (SH1106 driver and column offset right), and Clouds sounds the same with the OLED running; the CPU cost with and without it is not yet measured. Clouds' screen run on the board 2026-10-18: follows the browser panel as the desktop one follows its panel. With nothing playing the cloud showed grains, which read as activity; it now thins with the output level, checked on both hosts 2026-10-18. |
@@ -73,69 +73,68 @@ step by step (Working style).
       ramps, Thru and Loop Level, 30 s. Checks: transitions, maximum length,
       in-place byte-identical to separate buffers, determinism, silence
       before `Prepare()`. In the desktop menu as a solo rig.
-      **Resume here** (written 2026-10-30): the engine without ramps is
-      done, committed, and in the desktop menu as a solo rig (the user's
-      `kRigs` line and link, generic `RigPanel`, OLED test pattern);
-      listened in the JUCE app 2026-10-30: works. The dry (Thru) and overdub
-      input ramps are now implemented and checked (2026-10-30,
-      user-authorized); listen on desktop next. The earlier Thru review
-      caught 11 of 13 mutants: the exact-1.0 endpoint was unchecked and
-      the `fadeFrames_ == 0` guard is unreachable for supported rates.
-      Both ramp checks now include 8,200 Hz (41 frames) to cover that endpoint
-      case. The input ramp review initially caught 12 of 13 mutants.
-      `CheckInputRampReprepare()` now covers the surviving reset mutant:
-      re-Prepare mid-punch, Record immediately, a two-frame silent take,
-      then four frames of live input; the buffer must remain silent.
-      Confirmed that removing the reset fails this check under
-      `-O3 -ffast-math`; the normal check, desktop build and Bela compile
-      check pass. `AdvanceRamp()` is now non-const; both zero-frame guards
-      are documented as backstops (unreachable for supported rates).
-      Re-reviewed 2026-10-30: all four findings addressed, mutant G now
-      caught (13 of 13), all checks and `check.sh` pass.
-      Known gap until step 3: Play off mid-punch zeroes the input gain at
-      once, writing a step into the loop at the stop point. The code and
-      `CheckInputRampEdges` explicitly mark this temporary behavior for
-      replacement: step 3 keeps the punch fading while the playhead moves
-      and the loop fades out. Clear's cut is right for good (the loop is
-      discarded, and a new take must not receive the old punch).
-      Next exercise: the loop gain at play start and stop, with the
-      tail record and the four cases below (the seam is next action 1.2). No clicks heard with the
-      PO-33's percussion; a sustained sound will show them. Many overdub
-      layers exceed 1.0 and will clip in Clouds later.
-      Design so far (agreed 2026-10-30): the state sets targets, gains ramp
-      toward them per frame. Loop gain target 1 in Playing and
-      Overdubbing, else 0; overdub input target 1 in Overdubbing, else 0
-      (the first take bypasses this ramp); dry follows Thru. Per frame: `loop =
-      buffer[pos]` (plain read); `out = in × dry + loop × loopLevel ×
-      loopGain`; `buffer[pos] = loop + in × inGain` (overdub; the first
-      take writes `in`). Loop Level only changes what is heard, never the
-      buffer. The first take's edges are content, not punches: the take
-      writes at full from frame 0, and Recording → Playing sets the loop
-      gain straight to 1 (the seam crossfade, step 2, smooths the edges).
-      A fade-out keeps the playhead moving; it resets when the gain
-      reaches 0. Play during a fade-out waits for it to end, then restarts
-      at 0 and fades in (one read head). Clear waits for the fade-out to
-      reset `length_`, never zeroes the buffer; Record after Clear starts
-      at once, so the fade-out needs its own position, length and gain.
-      When the loop gain reaches 0: Stopped → `pos = 0`; Playing (Play
-      again mid-fade) → `pos = 0`, fade in; Empty (Clear) → `length_ = 0`;
-      Recording (Clear, then Record mid-fade) → the old tail stops, the
-      take is untouched. The state cannot tell these apart alone (the last
-      case), hence the tail's own record. Steps, each listened to and
-      checked (a constant 1.0 input; no neighbour difference above
-      1/fadeFrames; 5 frames at 1 kHz; checks that assume instant changes
-      wait out or test the fade): 1. the dry (Thru) ramp (implemented and
-      checked; listening pending); 2. the input ramp, punch-in and out,
-      the fade read back from the buffer (implemented and checked; listening
-      pending); 3. the loop gain with the four cases and the tail record.
-      Both ramp steps pass all 17 dev checks, the optimized `-O3 -ffast-math`
-      Stratus check, the desktop build and Bela's Clang 3.9 syntax check.
-      Remember for later: `PlayOn()` is not "the loop sounds" (Recording
-      reads Play on with no loop yet); a minimum loop length once the seam
-      crossfade exists; the first take's tail past `length_` needs room in
-      `capacity_`; `CheckMaximumLength` assumes 30 s.
+      **Resume here** (2026-10-30): all three ramp steps are implemented
+      and checked (user-authorized). Listen on desktop with a sustained
+      input: Thru, overdub punches, Play start/stop and Clear. Then the seam
+      crossfade is next action 1.2. The engine before ramps was listened to
+      with the PO-33 on 2026-10-30: works; percussion hid the boundary clicks.
+      Many overdub layers can exceed 1.0 and will clip in Clouds later.
+      The gains move once per frame, before use, by 1/fadeFrames. Thru
+      follows its toggle; overdub input targets 1 only during active
+      Overdubbing, 0 while a tail drains. First takes bypass the input ramp.
+      Loop Level affects output, never stored audio. Finishing a first take
+      sets loop gain straight to 1; its content edges await the seam.
+      Stop moves playback into the tail record; both output and pending
+      overdub input fade while its playhead moves. Play or Record during
+      Stop waits for zero, then restarts from the downbeat and fades in.
+      Clear keeps the old audio tail but permanently cancels its input
+      writes, since the loop is discarded. The four zero-gain cases:
+      - Stopped after Stop: position resets to 0, silence until Play.
+      - Playing (or pending Overdubbing): reset to 0, then fade in.
+      - Empty after Clear: stays Empty; length is already 0, Play refused.
+      - New take after Clear: old tail ends without touching its position,
+        length or state, including a take already finished or stopped.
+      A new take records immediately during Clear's tail. If it finishes
+      before the tail, it waits for that one playback head, then plays at
+      full gain. The tail has its own position, copied length, gain and a
+      discarded flag distinguishing its ownership from a new take's.
+      Shared-buffer detail: a short old loop can wrap into a prefix the
+      new take has overwritten. Host-owned scratch stores the original
+      stereo samples just before each overwrite, bounded by fadeFrames;
+      savedFrames marks the valid prefix. This costs 1,920 extra bytes at
+      48 kHz, no buffer clearing, and at most one stereo save per frame.
+      Clear remains O(1), including repeated Clear/new-take sequences.
+      Validation: all 17 dev checks; desktop build; Bela Clang 3.9 syntax;
+      optimized -O3 -ffast-math and ASan/UBSan Stratus runs. Six targeted
+      mutants caught: omitted Stop tail, cut input punch, ignored waiting
+      tail, rewound new take, overwritten tail samples, stale tail after
+      Prepare. The earlier Prepare/input-punch reset regression is retained.
+      Review (25 mutants plus a control, 2026-10-30) identified two test
+      gaps now covered permanently: Stop at -6.02 dB must preserve Loop
+      Level through its tail (including later level changes), and
+      Clear → Record → Record off → Clear must keep the original tail
+      when the new take finishes Playing but has never been heard.
+      Both mutants fail their respective checks under -O3 -ffast-math;
+      the unmodified code passes. The other nine survivors were equivalent.
+      Simplified the redundant state: Clear now resets `length_` at once,
+      since the tail owns its copied length. This supersedes the earlier
+      deferred-length-reset design. Tail completion no longer has an Empty
+      branch or redundant loop/input gain resets; Play/Record from Stopped
+      always reset the main position (the tail playhead is independent).
+      Kept the discarded-tail punch guard, tail record reset, and save bound
+      against the tail length to document intent or avoid unnecessary work.
+      Decided 2026-10-30 (the user): Play from Stopped keeps its 5 ms
+      fade-in at the downbeat; only Recording → Playing starts at full.
+      Re-reviewed 2026-10-30: both gap mutants now caught, all checks and
+      `check.sh` pass. The tail end's `position_ = 0` is now also
+      redundant (Play and Record from Stopped reset it), so that block can
+      be just `tail_ = {}`; optional.
+      Remember for later: `PlayOn()` describes panel state, not whether a
+      loop sounds. The seam needs a minimum loop length and room for the
+      first take's tail past `length_` in `capacity_`.
+      `CheckMaximumLength` assumes 30 s.
       Lessons so far: Clear is O(1) by an invariant (the first take
-      overwrites, overdub adds, nothing reads past `length_`); `Handle()` is
+      overwrites, overdub adds, read heads own recorded lengths); `Handle()` is
       real-time too; validate before computing; Bela's 32-bit `size_t`;
       `prepared_` false first so a failed `Prepare()` never leaves pointers
       into a freed block live; the key function puts the vtable in its
@@ -344,6 +343,7 @@ Earlier decisions are in the handover, section 2.
 | 2026-10-25 | Looper design (milestone 2). Stratus, `wf::stratus::Engine`: a plain engine at the host's rate (no `Module`, no adapters), depending only on Core. Parameters, as in the header (permanent once first committed): 0 Play (Toggle: on plays from the start, off stops), 1 Record (Toggle: the first take when empty, else overdub), 2 Clear (Trigger), 3 Loop Level (dB, default 0 dB), 4 Thru (Toggle, default on). The engine sets Record and Play itself, read back by `ParamValue()`: empty, Record on starts the first take and Play on is refused; in the first take, Record off or the maximum length fixes the length and plays from 0, Play off ends the take stopped; playing, Record turns overdub on and off, Play off stops and turns Record off; stopped, Play on plays from 0 and Record on plays from 0 overdubbing; Clear empties from anywhere. Output = input × Thru + loop × Loop Level; recording takes the input before Thru; overdub adds at 1.0 (feedback is milestone 5). Stereo float buffer, 30 s while testing, 60 s the intended length; a rate change re-prepares and clears it. About 5 ms ramps on punch-in and out and on play start and stop; the seam crossfades a tail recorded past the first take's end into the head. Free length until Transport (milestone 4); events land at callback starts, so use 64-128-frame buffers on desktop meanwhile. One-button behaviour belongs to a front panel or `MidiMap`, not the engine. Out of milestone 2: undo, reverse, half speed, feedback, several loops. |
 | 2026-10-26 | Engines and rigs take proper names, not functions (Conventions): the looper is Stratus in code too. Style A kept: `wf::<name>::Engine`. Rigs never take a board's name (the handover's `BelaRig`/`SeedRig` go), so a rig can move between boards. |
 | 2026-10-24 | Bela hardware controls follow Clouds' front panel: knobs A0-A6 (POSITION, SIZE, PITCH, DENSITY, TEXTURE, BLEND on the selected parameter, IN GAIN), A7 spare; FREEZE (a press toggles), B (press: show or select the BLEND parameter; 1 s: quality; 4 s: mode; presses there select the next) and TRIG (press: trigger, held: gate; our addition, the module has a jack). Feedback is the OLED; no LEDs yet. Everything on 3.3 V (the digital pins are not 5 V tolerant, and the 5 V pins depend on the power source). Unlike the firmware, which feeds the ADC straight to the DSP, a knob sends nothing until moved past a threshold and goes quiet at rest, since every published change opens an OLED popup and reaches the page; the last control moved wins (absolute, as the module's pots); at boot the knobs are sent once, so the hardware is the truth. BLEND keeps `CvScaler::UpdateBlendParameters()`'s skewed catch-up. Conditioning and the front-panel logic live below Platforms (`Ui/Controls`, `Ui/Clouds`), checked on desktop; the host only reads pins and runs them in `render()` (the audio thread is the one mutator, so no queue). Thresholds come from the probe, not from assumptions. |
+| 2026-10-30 | Stratus fades: 5 ms linear ramps on dry, overdub input and loop gain; the state sets targets. The first take's edges are content (written at full, Recording → Playing at full gain); Play from Stopped fades the downbeat in (the user's choice after listening). Stop and Clear fade out through a tail record with its own position, length and gain; Clear empties the loop at once. |
 
 ## Open questions
 

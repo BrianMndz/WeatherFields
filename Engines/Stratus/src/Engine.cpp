@@ -49,6 +49,16 @@ std::size_t ChannelBytes(float sampleRate) {
     return wf::AlignMemory(FramesFor(sampleRate) * sizeof(float));
 }
 
+std::size_t FadeFramesFor(float sampleRate) {
+    const auto frames = static_cast<std::size_t>(std::ceil(sampleRate * kFadeSeconds));
+    // Backstop: callers have already checked SupportedRate().
+    return frames == 0 ? 1 : frames;
+}
+
+std::size_t TailBytes(float sampleRate) {
+    return wf::AlignMemory(FadeFramesFor(sampleRate) * sizeof(float));
+}
+
 } // namespace
 
 const wf::ParamTable& Engine::Params() const noexcept {
@@ -56,7 +66,8 @@ const wf::ParamTable& Engine::Params() const noexcept {
 }
 
 std::size_t Engine::MemoryBytes(float sampleRate, std::size_t) const noexcept {
-    return kChannels * ChannelBytes(sampleRate);
+    if (!SupportedRate(sampleRate)) return 0;
+    return kChannels * (ChannelBytes(sampleRate) + TailBytes(sampleRate));
 }
 
 wf::PrepareStatus Engine::Prepare(float sampleRate, std::size_t, MemoryBlock memory) noexcept {
@@ -69,25 +80,29 @@ wf::PrepareStatus Engine::Prepare(float sampleRate, std::size_t, MemoryBlock mem
     const PrepareStatus memoryStatus = CheckMemory(memory, MemoryBytes(sampleRate, 0));
     if (memoryStatus != PrepareStatus::Ok) return memoryStatus;
 
-    // Left channel, then right, each aligned. The buffer is not cleared: the
-    // first take overwrites what it plays, and nothing reads past length_.
+    // Loop left/right, then tail scratch left/right, each aligned. No buffer
+    // clearing: read heads own recorded lengths, and savedFrames bounds the
+    // scratch prefix that has actually been written.
     auto* bytes = static_cast<unsigned char*>(memory.data);
     left_ = reinterpret_cast<float*>(bytes);
     right_ = reinterpret_cast<float*>(bytes + ChannelBytes(sampleRate));
+    tailLeft_ = reinterpret_cast<float*>(bytes + kChannels * ChannelBytes(sampleRate));
+    tailRight_ = reinterpret_cast<float*>(bytes + kChannels * ChannelBytes(sampleRate) +
+                                          TailBytes(sampleRate));
     capacity_ = FramesFor(sampleRate);
 
     state_ = State::kEmpty;
     length_ = 0;
     position_ = 0;
+    tail_ = {};
 
     loopLevelDb_ = 0.0f;
-    loopGain_ = 1.0f;
+    loopLevelGain_ = 1.0f;
     thru_ = true;
-    fadeFrames_ = static_cast<std::size_t>(std::ceil(sampleRate * kFadeSeconds));
-    // Backstop: SupportedRate() already makes the ceil at least one frame.
-    if (fadeFrames_ == 0) fadeFrames_ = 1;
+    fadeFrames_ = FadeFramesFor(sampleRate);
     dryFadePosition_ = fadeFrames_;
     inputFadePosition_ = 0;
+    loopFadePosition_ = 0;
     fadeStep_ = 1.0f / static_cast<float>(fadeFrames_);
 
     prepared_ = true;
@@ -103,9 +118,9 @@ void Engine::Handle(const ControlEvent& event) noexcept {
                 case kRecord: OnRecord(event.value != 0.0f); break;
                 case kLoopLevel:
                     loopLevelDb_ = event.value;
-                    loopGain_ = loopLevelDb_ <= kLoopLevelOffDb
-                                    ? 0.0f
-                                    : std::pow(10.0f, loopLevelDb_ / 20.0f);
+                    loopLevelGain_ = loopLevelDb_ <= kLoopLevelOffDb
+                                         ? 0.0f
+                                         : std::pow(10.0f, loopLevelDb_ / 20.0f);
                     break;
                 case kThru: thru_ = event.value != 0.0f; break;
                 default: break;
@@ -153,30 +168,67 @@ void Engine::Process(const float* inLeft, const float* inRight, float* outLeft, 
         const float dryGain = AdvanceRamp(dryFadePosition_, thru_);
         // The first take writes full input below. Only overdub punches ramp;
         // after Record off, Playing keeps writing until this gain reaches zero.
-        const float inputGain = AdvanceRamp(inputFadePosition_, state_ == State::kOverdubbing);
+        const bool tailActive = tail_.fadePosition != 0;
+        const float inputGain = AdvanceRamp(inputFadePosition_,
+                                           !tailActive && state_ == State::kOverdubbing);
         float outputL = inputL * dryGain;
         float outputR = inputR * dryGain;
+
+        if (tailActive) {
+            const float gain = AdvanceRamp(tail_.fadePosition, false) * loopLevelGain_;
+            const std::size_t pos = tail_.position;
+            // A new take may have overwritten this prefix since Clear.
+            const bool saved = tail_.discarded && pos < tail_.savedFrames;
+            outputL += (saved ? tailLeft_[pos] : left_[pos]) * gain;
+            outputR += (saved ? tailRight_[pos] : right_[pos]) * gain;
+            if (!tail_.discarded && inputFadePosition_ != 0) {
+                left_[pos] += inputL * inputGain;
+                right_[pos] += inputR * inputGain;
+            }
+            if (++tail_.position == tail_.length) tail_.position = 0;
+        }
 
         // Check each frame: finishing a full take changes the state mid-block.
         switch (state_) {
             case State::kEmpty:
             case State::kStopped: break;
             case State::kRecording:
+                // Preserve each old sample just before the new take replaces
+                // it. At most fadeFrames_ writes precede the tail's end; Clear
+                // does no copying, and scratch is read only below savedFrames.
+                if (tailActive && tail_.discarded && position_ == tail_.savedFrames &&
+                    position_ < tail_.length && position_ < fadeFrames_) {
+                    tailLeft_[position_] = left_[position_];
+                    tailRight_[position_] = right_[position_];
+                    ++tail_.savedFrames;
+                }
                 left_[position_] = inputL;
                 right_[position_] = inputR;
                 if (++position_ == capacity_) FinishFirstTake(State::kPlaying);
                 break;
             case State::kPlaying:
             case State::kOverdubbing:
+                // One read head: a restart or newly finished take waits until
+                // the old tail reaches zero before regular playback resumes.
+                if (tailActive) break;
                 // Hear the old loop before adding input, so Thru sounds it once.
-                outputL += left_[position_] * loopGain_;
-                outputR += right_[position_] * loopGain_;
+                {
+                    const float gain = AdvanceRamp(loopFadePosition_, true) * loopLevelGain_;
+                    outputL += left_[position_] * gain;
+                    outputR += right_[position_] * gain;
+                }
                 if (inputFadePosition_ != 0) {
                     left_[position_] += inputL * inputGain;
                     right_[position_] += inputR * inputGain;
                 }
                 if (++position_ == length_) position_ = 0;
                 break;
+        }
+        if (tailActive && tail_.fadePosition == 0) {
+            if (!tail_.discarded) position_ = 0;
+            // A new take owns its own position/length, even if it has already
+            // finished or stopped during the old tail. Never rewind it here.
+            tail_ = {};
         }
         outLeft[i] = outputL;
         outRight[i] = outputR;
@@ -189,6 +241,7 @@ void Engine::OnRecord(bool isRecOn) noexcept {
             if (isRecOn) {
                 length_ = 0;
                 position_ = 0;
+                loopFadePosition_ = 0;
                 state_ = State::kRecording;
             }
             break;
@@ -221,11 +274,9 @@ void Engine::OnPlay(bool isPlayOn) noexcept {
         case State::kPlaying:
         case State::kOverdubbing:
             if (!isPlayOn) {
+                BeginTail(false);
                 state_ = State::kStopped;
-                // TODO(step 3): this cut can write a click into the loop.
-                // Keep the playhead moving and fade the punch during the
-                // loop fade-out once that exists; do not retain this reset.
-                inputFadePosition_ = 0;
+                loopFadePosition_ = 0;
             }
             break;
         case State::kStopped:
@@ -238,11 +289,23 @@ void Engine::OnPlay(bool isPlayOn) noexcept {
 }
 
 void Engine::OnClear() noexcept {
+    BeginTail(true);
+    if (tail_.fadePosition != 0) tail_.discarded = true;
+    // The tail owns its copied length, so the main loop is empty immediately.
     length_ = 0;
     position_ = 0;
     // The discarded loop's punch must never carry into a new take.
     inputFadePosition_ = 0;
+    loopFadePosition_ = 0;
     state_ = State::kEmpty;
+}
+
+void Engine::BeginTail(bool discarded) noexcept {
+    // Repeated Stop/Clear events must not restart an existing fade. A new
+    // take can finish while it runs, but has not played through this head yet.
+    if (tail_.fadePosition != 0 || loopFadePosition_ == 0 || length_ == 0) return;
+    tail_ = {position_, length_, loopFadePosition_, 0, discarded};
+    loopFadePosition_ = 0;
 }
 
 float Engine::AdvanceRamp(std::size_t& position, bool on) noexcept {
@@ -260,6 +323,8 @@ void Engine::FinishFirstTake(State nextState) noexcept {
     position_ = 0;
     // A press and release before any audio leaves no loop to play.
     state_ = length_ == 0 ? State::kEmpty : nextState;
+    // First-take edges are content, smoothed by the future seam crossfade.
+    loopFadePosition_ = state_ == State::kPlaying ? fadeFrames_ : 0;
 }
 
 bool Engine::PlayOn() const noexcept {

@@ -40,6 +40,7 @@ private:
     void OnPlay(bool isPlayOn) noexcept;
     void OnClear() noexcept;
     void FinishFirstTake(State nextState) noexcept;
+    void BeginTail(bool discarded) noexcept;
     float AdvanceRamp(std::size_t& position, bool on) noexcept;
     // Panel readback only: Recording has Play on before a loop exists.
     bool PlayOn() const noexcept;
@@ -47,6 +48,8 @@ private:
 
     float* left_ = nullptr;
     float* right_ = nullptr;
+    float* tailLeft_ = nullptr;
+    float* tailRight_ = nullptr;
     std::size_t capacity_ = 0;   // frames each channel holds
     bool prepared_ = false;
 
@@ -54,14 +57,23 @@ private:
     std::size_t length_ = 0;
     std::size_t position_ = 0;
 
+    struct Tail {
+        std::size_t position = 0;
+        std::size_t length = 0;
+        std::size_t fadePosition = 0;
+        std::size_t savedFrames = 0;
+        bool discarded = false;
+    } tail_;
+
     float loopLevelDb_ = 0.0f;
-    float loopGain_ = 1.0f;
+    float loopLevelGain_ = 1.0f;
     bool thru_ = true;
     // Gain position in a 5 ms ramp: integer steps give exact endpoints and
     // let a mid-ramp toggle reverse without restarting the fade.
     std::size_t fadeFrames_ = 1;
     std::size_t dryFadePosition_ = 1;
     std::size_t inputFadePosition_ = 0;
+    std::size_t loopFadePosition_ = 0;
     float fadeStep_ = 1.0f;
 };
 
