@@ -6,8 +6,8 @@
 #include <juce_gui_basics/juce_gui_basics.h>
 
 #include "../AudioHost.h"
-#include "../Clouds/PanelControls.h"
-#include "../RigView.h"
+#include "../Panel/PanelControls.h"
+#include "../Panel/PanelView.h"
 #include "wf/stratus/Engine.h"
 
 namespace wf {
@@ -19,19 +19,14 @@ namespace desktop {
 // sixteen LEDs for the playhead. While the first take records, the row fills
 // red over the maximum length, so the unlit LEDs are the time left; while
 // the loop plays, a light walks across it once per lap, green, or amber when
-// overdubbing. It scales with a fixed aspect ratio, centred in its bounds.
+// overdubbing. A panel::PanelView, the Clouds panel's size.
 //
 // Like the Clouds panel, it sends events through the host and shows only
 // published values, including the engine's Position and Length readouts.
-class StratusPanel final : public RigView, private juce::Timer {
+class StratusPanel final : public panel::PanelView, private juce::Timer {
 public:
     StratusPanel(AudioHost& host, std::size_t slot);
     ~StratusPanel() override;
-
-    int HeightFor(int width, int visibleHeight) const override;
-
-    void paint(juce::Graphics& g) override;
-    void resized() override;
 
 private:
     using Engine = stratus::Engine;
@@ -45,9 +40,8 @@ private:
     void SyncControls();
     void UpdateLeds();
     void timerCallback() override;
-
-    juce::Rectangle<int> Scaled(juce::Rectangle<float> area) const;
-    juce::AffineTransform Transform() const;
+    void PaintPanel(juce::Graphics& g) override;
+    void LayOut() override;
 
     AudioHost& host_;
     std::size_t slot_;
@@ -55,20 +49,18 @@ private:
     float maxSeconds_ = 0.0f;  // Position's range: the longest first take
 
     // Declared before the controls so it outlives every one that uses it.
-    clouds_panel::PanelLookAndFeel lookAndFeel_;
+    panel::PanelLookAndFeel lookAndFeel_;
 
-    clouds_panel::LitButton recordButton_;
-    clouds_panel::LitButton playButton_;
-    clouds_panel::PanelPushButton clearButton_{"Clear"};
-    clouds_panel::PanelPushButton thruButton_{"Thru"};
-    clouds_panel::PanelLed thruLed_;
-    clouds_panel::PanelKnob levelKnob_{clouds_panel::PanelKnob::Size::Large, clouds_panel::colours::kTealCap};
-    std::array<clouds_panel::PanelLed, kLedCount> leds_;
+    panel::LitButton recordButton_;
+    panel::LitButton playButton_;
+    panel::PanelPushButton clearButton_{"Clear"};
+    panel::PanelPushButton thruButton_{"Thru"};
+    panel::PanelLed thruLed_;
+    panel::PanelKnob levelKnob_{panel::PanelKnob::Size::Large, panel::colours::kTealCap};
+    std::array<panel::PanelLed, kLedCount> leds_;
 
     juce::TooltipWindow tooltipWindow_{this};
 
-    float scale_ = 1.0f;
-    juce::Point<float> origin_;
     float shownLength_ = -1.0f;  // the loop length under the LED row
 };
 

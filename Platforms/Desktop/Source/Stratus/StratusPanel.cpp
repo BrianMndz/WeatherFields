@@ -7,12 +7,11 @@ namespace desktop {
 
 namespace {
 
-namespace colours = clouds_panel::colours;
-using clouds_panel::DrawLabel;
-using clouds_panel::DrawOrnament;
-using clouds_panel::DrawPill;
-using clouds_panel::DrawScrewHole;
-using clouds_panel::PanelFont;
+namespace colours = panel::colours;
+using panel::DrawLabel;
+using panel::DrawOrnament;
+using panel::DrawPill;
+using panel::PanelFont;
 
 // Reference coordinates: the Clouds panel's size, so both rigs fill the
 // window alike.
@@ -20,19 +19,8 @@ namespace layout {
 
 constexpr float kWidth = 416.0f;
 constexpr float kHeight = 440.0f;
-constexpr float kMinimumScale = 0.8f;
-constexpr float kMaximumScale = 2.5f;
 
-struct Circle {
-    float x;
-    float y;
-    float radius;
-
-    juce::Point<float> Centre() const noexcept { return {x, y}; }
-    juce::Rectangle<float> Bounds() const noexcept {
-        return juce::Rectangle<float>(radius * 2.0f, radius * 2.0f).withCentre(Centre());
-    }
-};
+using panel::Circle;
 
 constexpr float kLedFirstX = 58.0f;
 constexpr float kLedSpacing = 20.0f;
@@ -55,7 +43,6 @@ constexpr float kThruLabelX = 340.0f;
 
 constexpr float kDividerY = 361.5f;
 constexpr float kBottomRowY = 392.0f;
-constexpr float kScrewY[]{14.0f, kHeight - 19.0f};
 
 }  // namespace layout
 
@@ -72,7 +59,8 @@ const juce::Colour kPlayCore{0xfff4fbd8};
 }  // namespace
 
 StratusPanel::StratusPanel(AudioHost& host, std::size_t slot)
-    : host_(host),
+    : PanelView(layout::kWidth, layout::kHeight),
+      host_(host),
       slot_(slot),
       recordButton_("REC", kRecordRed, kRecordCore),
       playButton_("PLAY", colours::kLedGreen, kPlayCore) {
@@ -127,10 +115,6 @@ StratusPanel::StratusPanel(AudioHost& host, std::size_t slot)
 StratusPanel::~StratusPanel() {
     stopTimer();
     setLookAndFeel(nullptr);
-}
-
-int StratusPanel::HeightFor(int, int visibleHeight) const {
-    return juce::jmax(visibleHeight, juce::roundToInt(layout::kHeight * layout::kMinimumScale));
 }
 
 float StratusPanel::Value(ParamId id) const {
@@ -211,28 +195,7 @@ void StratusPanel::timerCallback() {
     UpdateLeds();
 }
 
-juce::AffineTransform StratusPanel::Transform() const {
-    return juce::AffineTransform::scale(scale_).translated(origin_);
-}
-
-juce::Rectangle<int> StratusPanel::Scaled(juce::Rectangle<float> area) const {
-    return area.transformedBy(Transform()).getSmallestIntegerContainer();
-}
-
-void StratusPanel::paint(juce::Graphics& g) {
-    g.fillAll(juce::Colour(0xff2a2a2d));
-    g.addTransform(Transform());
-
-    // Panel.
-    const auto panel = juce::Rectangle<float>(layout::kWidth, layout::kHeight);
-    g.setGradientFill(juce::ColourGradient(colours::kPanel, panel.getTopLeft(), colours::kPanelShade,
-                                           panel.getBottomLeft(), false));
-    g.fillRect(panel);
-
-    for (const float y : layout::kScrewY) {
-        for (const float x : {46.0f, 370.0f}) DrawScrewHole(g, {x, y});
-    }
-
+void StratusPanel::PaintPanel(juce::Graphics& g) {
     // Header, as Clouds': the name beside a framed square, here of flat
     // layers.
     g.setColour(colours::kInk);
@@ -280,14 +243,7 @@ void StratusPanel::paint(juce::Graphics& g) {
                juce::Justification::centred, false);
 }
 
-void StratusPanel::resized() {
-    const float width = static_cast<float>(getWidth());
-    const float height = static_cast<float>(getHeight());
-    scale_ = juce::jlimit(layout::kMinimumScale, layout::kMaximumScale,
-                          juce::jmin(width / layout::kWidth, height / layout::kHeight));
-    origin_ = {juce::jmax(0.0f, (width - layout::kWidth * scale_) * 0.5f),
-               juce::jmax(0.0f, (height - layout::kHeight * scale_) * 0.5f)};
-
+void StratusPanel::LayOut() {
     static_assert(kLedCount == 16, "layout::kLastLedX assumes sixteen LEDs");
     for (std::size_t i = 0; i < kLedCount; ++i) {
         const float x = layout::kLedFirstX + layout::kLedSpacing * static_cast<float>(i);

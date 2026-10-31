@@ -6,11 +6,12 @@
 
 namespace wf {
 namespace desktop {
-namespace clouds_panel {
+namespace panel {
 
-// Controls and drawing for the copy of the Clouds front panel, ported from
-// CloudsEngine's JUCE editor (Source/PanelControls, e7738d9). Other panels in
-// Clouds' look (Stratus) use them too.
+// The desktop panels' look: controls and drawing ported from CloudsEngine's
+// JUCE editor (Source/PanelControls, e7738d9) for the Clouds panel, and
+// shared by every panel drawn in its style (Stratus). PanelView.h holds the
+// plate and its scaling.
 namespace colours {
 const juce::Colour kPanel{0xffe4e3e4};
 const juce::Colour kPanelShade{0xffd2d1d3};
@@ -120,6 +121,6 @@ void DrawScrewHole(juce::Graphics& g, juce::Point<float> centre);
 // A simplified version of the ornamental rings behind the large knobs.
 void DrawOrnament(juce::Graphics& g, juce::Point<float> centre);
 
-}  // namespace clouds_panel
+}  // namespace panel
 }  // namespace desktop
 }  // namespace wf

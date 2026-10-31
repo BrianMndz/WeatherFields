@@ -2,7 +2,7 @@
 
 namespace wf {
 namespace desktop {
-namespace clouds_panel {
+namespace panel {
 
 void PanelLookAndFeel::drawRotarySlider(juce::Graphics& g, int x, int y, int width, int height,
                                         float sliderPosProportional, float rotaryStartAngle,
@@ -230,6 +230,6 @@ void DrawOrnament(juce::Graphics& g, juce::Point<float> centre) {
     }
 }
 
-}  // namespace clouds_panel
+}  // namespace panel
 }  // namespace desktop
 }  // namespace wf

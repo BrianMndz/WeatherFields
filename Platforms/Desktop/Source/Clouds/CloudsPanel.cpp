@@ -8,12 +8,11 @@ namespace desktop {
 
 namespace {
 
-namespace colours = clouds_panel::colours;
-using clouds_panel::DrawLabel;
-using clouds_panel::DrawOrnament;
-using clouds_panel::DrawPill;
-using clouds_panel::DrawScrewHole;
-using clouds_panel::PanelFont;
+namespace colours = panel::colours;
+using panel::DrawLabel;
+using panel::DrawOrnament;
+using panel::DrawPill;
+using panel::PanelFont;
 
 // Reference coordinates, measured from CloudsEngine's
 // references/cloudsfrontpanel.png (416 x 554 pixels). The module's jack
@@ -24,19 +23,8 @@ namespace layout {
 
 constexpr float kWidth = 416.0f;
 constexpr float kHeight = 440.0f;
-constexpr float kMinimumScale = 0.8f;
-constexpr float kMaximumScale = 2.5f;
 
-struct Circle {
-    float x;
-    float y;
-    float radius;
-
-    juce::Point<float> Centre() const noexcept { return {x, y}; }
-    juce::Rectangle<float> Bounds() const noexcept {
-        return juce::Rectangle<float>(radius * 2.0f, radius * 2.0f).withCentre(Centre());
-    }
-};
+using panel::Circle;
 
 constexpr Circle kFreeze{56.0f, 82.5f, 20.0f};
 constexpr float kLedX[]{141.5f, 187.5f, 231.5f, 276.0f};
@@ -62,7 +50,6 @@ constexpr float kSmallLabelY = 339.0f;
 constexpr float kDividerY = 361.5f;
 constexpr float kBottomRowY = 392.0f;
 constexpr Circle kTrigger{370.0f, kBottomRowY, 11.0f};
-constexpr float kScrewY[]{14.0f, kHeight - 19.0f};
 
 }  // namespace layout
 
@@ -197,7 +184,7 @@ const char* BlendParameterName(int parameter) {
 
 // The module's colour scale for a value from 0 to 1 (Leds::set_intensity in
 // eurorack/clouds/drivers/leds.h): off, green, yellow, then red.
-void ShowIntensity(clouds_panel::PanelLed& led, float value) {
+void ShowIntensity(panel::PanelLed& led, float value) {
     if (value < 0.5f) {
         led.SetLight(0.0f, value * 2.0f);
     } else if (value < 0.75f) {
@@ -210,7 +197,7 @@ void ShowIntensity(clouds_panel::PanelLed& led, float value) {
 // The playback mode display's pulse (Ui::PaintLeds in the firmware): a
 // triangle wave over 512 ms, squared, from 0 to 254. The selected LED moves
 // between yellow (fade 0) and orange (fade 254).
-void ShowPlaybackModeLed(clouds_panel::PanelLed& led, juce::uint32 milliseconds) {
+void ShowPlaybackModeLed(panel::PanelLed& led, juce::uint32 milliseconds) {
     auto fade = static_cast<std::uint8_t>(milliseconds >> 1);
     fade = static_cast<std::uint8_t>(fade <= 127 ? fade << 1 : 255 - (fade << 1));
     const int squared = static_cast<int>(fade) * fade >> 8;
@@ -221,7 +208,7 @@ void ShowPlaybackModeLed(clouds_panel::PanelLed& led, juce::uint32 milliseconds)
 // The module's input meter (Leds::PaintBar with lut_db in the firmware):
 // each LED covers 6 dB and fades in across it. LEDs 1 and 2 light green from
 // -24 to -12 dBFS, LED 3 yellow up to -6 dBFS, LED 4 red up to full scale.
-void ShowLevel(std::array<clouds_panel::PanelLed, 4>& leds, float peak) {
+void ShowLevel(std::array<panel::PanelLed, 4>& leds, float peak) {
     // Steps of 6.02 dB (one octave of amplitude) above -24 dBFS, the
     // firmware's 8192 * log2(16 * peak) in units of 8192.
     const float level = peak > 0.0f ? std::log2(peak) + 4.0f : -1.0f;
@@ -291,7 +278,8 @@ const Tooltips kModeTooltips[kPlaybackModeCount] = {
 
 }  // namespace
 
-CloudsPanel::CloudsPanel(AudioHost& host, std::size_t slot) : host_(host), slot_(slot) {
+CloudsPanel::CloudsPanel(AudioHost& host, std::size_t slot)
+    : PanelView(layout::kWidth, layout::kHeight), host_(host), slot_(slot) {
     for (std::size_t id = 0; id < indices_.size(); ++id) {
         indices_[id] = host_.FindParam(slot_, static_cast<ParamId>(id));
         jassert(indices_[id] != AudioHost::kNoParam);  // slot_ holds a clouds::Engine
@@ -399,10 +387,6 @@ CloudsPanel::~CloudsPanel() {
     setLookAndFeel(nullptr);
 }
 
-int CloudsPanel::HeightFor(int, int visibleHeight) const {
-    return juce::jmax(visibleHeight, juce::roundToInt(layout::kHeight * layout::kMinimumScale));
-}
-
 float CloudsPanel::Value(ParamId id) const {
     const std::size_t index = indices_[id];
     return index != AudioHost::kNoParam ? host_.PublishedValue(index) : 0.0f;
@@ -423,7 +407,7 @@ ParamId CloudsPanel::BlendParam() const noexcept {
 }
 
 // Range, default and suffix come from the engine's table.
-void CloudsPanel::AddKnob(clouds_panel::PanelKnob& knob, ParamId id, int decimalPlaces) {
+void CloudsPanel::AddKnob(panel::PanelKnob& knob, ParamId id, int decimalPlaces) {
     const std::size_t index = indices_[id];
     if (index == AudioHost::kNoParam) return;
     const ParamSpec& spec = *host_.Params()[index].spec;
@@ -451,7 +435,7 @@ void CloudsPanel::SyncBlendKnob() {
 // Shows the published values, leaving alone a control the user is holding or
 // whose value still waits to be sent.
 void CloudsPanel::SyncControls() {
-    const auto syncKnob = [this](clouds_panel::PanelKnob& knob, ParamId id) {
+    const auto syncKnob = [this](panel::PanelKnob& knob, ParamId id) {
         const std::size_t index = indices_[id];
         if (index == AudioHost::kNoParam || knob.isMouseButtonDown() || host_.IsPending(index)) return;
         const double value = host_.PublishedValue(index);
@@ -576,28 +560,7 @@ void CloudsPanel::timerCallback() {
     }
 }
 
-juce::AffineTransform CloudsPanel::Transform() const {
-    return juce::AffineTransform::scale(scale_).translated(origin_);
-}
-
-juce::Rectangle<int> CloudsPanel::Scaled(juce::Rectangle<float> area) const {
-    return area.transformedBy(Transform()).getSmallestIntegerContainer();
-}
-
-void CloudsPanel::paint(juce::Graphics& g) {
-    g.fillAll(juce::Colour(0xff2a2a2d));
-    g.addTransform(Transform());
-
-    // Panel.
-    const auto panel = juce::Rectangle<float>(layout::kWidth, layout::kHeight);
-    g.setGradientFill(juce::ColourGradient(colours::kPanel, panel.getTopLeft(), colours::kPanelShade,
-                                           panel.getBottomLeft(), false));
-    g.fillRect(panel);
-
-    for (const float y : layout::kScrewY) {
-        for (const float x : {46.0f, 370.0f}) DrawScrewHole(g, {x, y});
-    }
-
+void CloudsPanel::PaintPanel(juce::Graphics& g) {
     // Header.
     g.setColour(colours::kInk);
     g.setFont(PanelFont(24.0f, false));
@@ -686,14 +649,7 @@ void CloudsPanel::paint(juce::Graphics& g) {
     }
 }
 
-void CloudsPanel::resized() {
-    const float width = static_cast<float>(getWidth());
-    const float height = static_cast<float>(getHeight());
-    scale_ = juce::jlimit(layout::kMinimumScale, layout::kMaximumScale,
-                          juce::jmin(width / layout::kWidth, height / layout::kHeight));
-    origin_ = {juce::jmax(0.0f, (width - layout::kWidth * scale_) * 0.5f),
-               juce::jmax(0.0f, (height - layout::kHeight * scale_) * 0.5f)};
-
+void CloudsPanel::LayOut() {
     freezeButton_.setBounds(Scaled(layout::kFreeze.Bounds()));
     for (std::size_t i = 0; i < leds_.size(); ++i) {
         leds_[i].setBounds(Scaled(layout::Circle{layout::kLedX[i], layout::kLedY, layout::kLedRadius}.Bounds()));

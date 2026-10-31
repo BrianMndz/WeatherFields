@@ -6,8 +6,8 @@
 #include <juce_gui_basics/juce_gui_basics.h>
 
 #include "../AudioHost.h"
-#include "../RigView.h"
-#include "PanelControls.h"
+#include "../Panel/PanelControls.h"
+#include "../Panel/PanelView.h"
 #include "wf/clouds/Engine.h"
 
 namespace wf {
@@ -15,25 +15,18 @@ namespace desktop {
 
 // A copy of the Clouds front panel, ported from CloudsEngine's JUCE editor
 // (Source/PluginEditor, e7738d9), for a wf::clouds::Engine in `slot` of the
-// host's rig. It scales with a fixed aspect ratio, centred in its bounds; all
-// positions are in the panel's reference coordinates.
+// host's rig, on a panel::PanelView; all positions are in the panel's
+// reference coordinates.
 //
 // Unlike the CloudsEngine editor, it never touches the engine: controls send
 // events through the host, and show the values the audio thread published,
 // so changes from elsewhere (a quality change releasing freeze, later MIDI)
 // appear on the panel. The LED meter reads the host's levels: the input
 // times IN GAIN, or the output while frozen, as the module meters.
-class CloudsPanel final : public RigView, private juce::Timer {
+class CloudsPanel final : public panel::PanelView, private juce::Timer {
 public:
     CloudsPanel(AudioHost& host, std::size_t slot);
     ~CloudsPanel() override;
-
-    // Fills the visible height, so the panel always fits without scrolling
-    // down to its smallest scale.
-    int HeightFor(int width, int visibleHeight) const override;
-
-    void paint(juce::Graphics& g) override;
-    void resized() override;
 
 private:
     using Engine = clouds::Engine;
@@ -54,7 +47,7 @@ private:
     void Send(ParamId id, float value);
     ParamId BlendParam() const noexcept;
 
-    void AddKnob(clouds_panel::PanelKnob& knob, ParamId id, int decimalPlaces);
+    void AddKnob(panel::PanelKnob& knob, ParamId id, int decimalPlaces);
     void SyncBlendKnob();
     void SyncControls();
     void SelectNextQuality();
@@ -63,36 +56,32 @@ private:
     void ShowLeds(LedMode mode);
     void UpdateLeds();
     void timerCallback() override;
-
-    juce::Rectangle<int> Scaled(juce::Rectangle<float> area) const;
-    juce::AffineTransform Transform() const;
+    void PaintPanel(juce::Graphics& g) override;
+    void LayOut() override;
 
     AudioHost& host_;
     std::size_t slot_;
     std::array<std::size_t, Engine::kPlaybackMode + 1> indices_{};  // host index per ID
 
     // Declared before the controls so it outlives every one that uses it.
-    clouds_panel::PanelLookAndFeel lookAndFeel_;
+    panel::PanelLookAndFeel lookAndFeel_;
 
-    clouds_panel::LitButton freezeButton_{"FREEZE", clouds_panel::colours::kLedGreen, juce::Colour(0xfff4fbd8)};
-    std::array<clouds_panel::PanelLed, 4> leds_;
-    clouds_panel::PanelPushButton blendButton_{"Blend parameter"};
-    clouds_panel::PanelPushButton saveButton_{"Load/save"};
-    clouds_panel::PanelPushButton triggerButton_{"Trigger"};
+    panel::LitButton freezeButton_{"FREEZE", panel::colours::kLedGreen, juce::Colour(0xfff4fbd8)};
+    std::array<panel::PanelLed, 4> leds_;
+    panel::PanelPushButton blendButton_{"Blend parameter"};
+    panel::PanelPushButton saveButton_{"Load/save"};
+    panel::PanelPushButton triggerButton_{"Trigger"};
 
-    clouds_panel::PanelKnob positionKnob_{clouds_panel::PanelKnob::Size::Large, clouds_panel::colours::kRedCap};
-    clouds_panel::PanelKnob sizeKnob_{clouds_panel::PanelKnob::Size::Large, clouds_panel::colours::kTealCap};
-    clouds_panel::PanelKnob pitchKnob_{clouds_panel::PanelKnob::Size::Large, clouds_panel::colours::kWhiteCap};
+    panel::PanelKnob positionKnob_{panel::PanelKnob::Size::Large, panel::colours::kRedCap};
+    panel::PanelKnob sizeKnob_{panel::PanelKnob::Size::Large, panel::colours::kTealCap};
+    panel::PanelKnob pitchKnob_{panel::PanelKnob::Size::Large, panel::colours::kWhiteCap};
 
-    clouds_panel::PanelKnob inputGainKnob_{clouds_panel::PanelKnob::Size::Small, clouds_panel::colours::kRedCap};
-    clouds_panel::PanelKnob densityKnob_{clouds_panel::PanelKnob::Size::Small, clouds_panel::colours::kRedCap};
-    clouds_panel::PanelKnob textureKnob_{clouds_panel::PanelKnob::Size::Small, clouds_panel::colours::kTealCap};
-    clouds_panel::PanelKnob blendKnob_{clouds_panel::PanelKnob::Size::Small, clouds_panel::colours::kWhiteCap};
+    panel::PanelKnob inputGainKnob_{panel::PanelKnob::Size::Small, panel::colours::kRedCap};
+    panel::PanelKnob densityKnob_{panel::PanelKnob::Size::Small, panel::colours::kRedCap};
+    panel::PanelKnob textureKnob_{panel::PanelKnob::Size::Small, panel::colours::kTealCap};
+    panel::PanelKnob blendKnob_{panel::PanelKnob::Size::Small, panel::colours::kWhiteCap};
 
     juce::TooltipWindow tooltipWindow_{this};
-
-    float scale_ = 1.0f;
-    juce::Point<float> origin_;
 
     LedMode ledMode_ = LedMode::Meter;
     juce::uint32 lastLedActivity_ = 0;
