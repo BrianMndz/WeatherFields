@@ -59,8 +59,6 @@ private:
     panel::PanelKnob levelKnob_{panel::PanelKnob::Size::Large, panel::colours::kTealCap};
     std::array<panel::PanelLed, kLedCount> leds_;
 
-    juce::TooltipWindow tooltipWindow_{this};
-
     float shownLength_ = -1.0f;  // the loop length under the LED row
 };
 

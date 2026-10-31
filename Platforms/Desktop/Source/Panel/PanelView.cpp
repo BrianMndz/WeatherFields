@@ -23,6 +23,10 @@ int PanelView::HeightFor(int, int visibleHeight) const {
     return juce::jmax(visibleHeight, juce::roundToInt(height_ * kMinimumScale));
 }
 
+int PanelView::MinimumWidth() const noexcept {
+    return juce::roundToInt(width_ * kMinimumScale);
+}
+
 juce::AffineTransform PanelView::Transform() const {
     return juce::AffineTransform::scale(scale_).translated(origin_);
 }

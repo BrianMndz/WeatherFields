@@ -2,9 +2,11 @@
 
 #include "AudioHost.h"
 #include "Clouds/CloudsPanel.h"
+#include "Stratocumulus/StratocumulusView.h"
 #include "Stratus/StratusPanel.h"
 #include "wf/clouds/Engine.h"
 #include "wf/clouds/OledScreen.h"
+#include "wf/stratocumulus/Rig.h"
 
 #include "wf/stratus/Engine.h"
 #include "wf/stratus/OledScreen.h"
@@ -37,9 +39,19 @@ std::unique_ptr<oled::Screen> MakeStratusScreen() {
     return std::make_unique<stratus::OledScreen>(0);
 }
 
+std::unique_ptr<RigView> MakeStratocumulusView(AudioHost& host) {
+    return std::make_unique<StratocumulusView>(host);
+}
+
+// The loop's screen: the panels show Clouds.
+std::unique_ptr<oled::Screen> MakeStratocumulusScreen() {
+    return std::make_unique<stratus::OledScreen>(stratocumulus::Rig::kStratusSlot);
+}
+
 const RigEntry kRigs[] = {
     {"Clouds", &Make<SoloRig<clouds::Engine>>, &MakeCloudsView, &MakeCloudsScreen},
     {"Stratus", &Make<SoloRig<stratus::Engine>>, &MakeStratusView, &MakeStratusScreen},
+    {"Stratocumulus", &Make<stratocumulus::Rig>, &MakeStratocumulusView, &MakeStratocumulusScreen},
 };
 
 }  // namespace

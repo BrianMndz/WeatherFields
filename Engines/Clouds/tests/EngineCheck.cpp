@@ -1,3 +1,4 @@
+#include <algorithm>
 #include <cmath>
 #include <cstddef>
 #include <cstdint>
@@ -348,6 +349,70 @@ void CheckInputGainAt48k() {
     }
 }
 
+// One second at 48 kHz, through both adapters, in callbacks of uneven sizes
+// up to 64 frames, with freeze and pitch changing midway: in place, each
+// output its input as on Bela and in a rig's chain, or into separate
+// buffers.
+std::vector<float> RenderAt48k(PlaybackMode mode, bool inPlace) {
+    constexpr std::size_t kMaxFrames = 64;
+    constexpr std::size_t kTotal = 48000;
+    const std::size_t sizes[] = {37, 64, 5, 1, 64, 50};
+    std::vector<float> output(2 * kTotal);
+    wf::Rig& base = rig;
+    if (base.Prepare(48000.0f, kMaxFrames, kArena) != wf::PrepareStatus::Ok) return output;
+    SetParam(Engine::kPlaybackMode, static_cast<float>(mode));
+    SetParam(Engine::kDryWet, 0.7f);
+
+    float inLeft[kMaxFrames], inRight[kMaxFrames], outLeft[kMaxFrames], outRight[kMaxFrames];
+    double phase = 0.0;
+    for (std::size_t done = 0, call = 0; done < kTotal; ++call) {
+        const std::size_t count = std::min(sizes[call % 6], kTotal - done);
+        if (done <= kTotal / 2 && kTotal / 2 < done + count) {
+            SetParam(Engine::kFreeze, 1.0f);
+            SetParam(Engine::kPitch, -5.0f);
+        }
+        for (std::size_t i = 0; i < count; ++i) {
+            phase += 0.031;
+            inLeft[i] = 0.5f * static_cast<float>(std::sin(phase));
+            inRight[i] = 0.4f * static_cast<float>(std::sin(1.7 * phase));
+            outLeft[i] = outRight[i] = 123.0f;
+        }
+        if (inPlace) {
+            base.Process(inLeft, inRight, inLeft, inRight, count);
+        } else {
+            base.Process(inLeft, inRight, outLeft, outRight, count);
+        }
+        const float* left = inPlace ? inLeft : outLeft;
+        const float* right = inPlace ? inRight : outRight;
+        for (std::size_t i = 0; i < count; ++i) {
+            output[2 * (done + i)] = left[i];
+            output[2 * (done + i) + 1] = right[i];
+        }
+        done += count;
+    }
+    return output;
+}
+
+// A rig chains engines in place (2026-10-25), so the engine must give the
+// same output either way, bit for bit, in every mode. Prepare() seeds
+// stmlib::Random, so both renders draw the same numbers.
+void CheckInPlace() {
+    const PlaybackMode modes[] = {PlaybackMode::Granular, PlaybackMode::Stretch, PlaybackMode::LoopingDelay,
+                                  PlaybackMode::Spectral};
+    for (const PlaybackMode mode : modes) {
+        const std::vector<float> separate = RenderAt48k(mode, false);
+        const std::vector<float> inPlace = RenderAt48k(mode, true);
+        float peak = 0.0f;
+        for (const float sample : separate) peak = std::max(peak, std::fabs(sample));
+        Expect(peak > 0.01f, "the in-place renders are not silent");
+        if (std::memcmp(separate.data(), inPlace.data(), separate.size() * sizeof(float)) != 0) {
+            std::cerr << "FAIL: in-place output differs from separate buffers in mode "
+                      << static_cast<int>(mode) << '\n';
+            ++failures;
+        }
+    }
+}
+
 }  // namespace
 
 int main() {
@@ -358,6 +423,7 @@ int main() {
     CheckParamValue();
     CheckRendersMatchModule();
     CheckInputGainAt48k();
+    CheckInPlace();
 
     if (failures != 0) {
         return 1;

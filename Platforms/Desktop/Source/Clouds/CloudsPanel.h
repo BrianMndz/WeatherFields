@@ -81,8 +81,6 @@ private:
     panel::PanelKnob textureKnob_{panel::PanelKnob::Size::Small, panel::colours::kTealCap};
     panel::PanelKnob blendKnob_{panel::PanelKnob::Size::Small, panel::colours::kWhiteCap};
 
-    juce::TooltipWindow tooltipWindow_{this};
-
     LedMode ledMode_ = LedMode::Meter;
     juce::uint32 lastLedActivity_ = 0;
     int blendParameter_ = 0;

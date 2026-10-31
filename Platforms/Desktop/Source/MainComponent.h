@@ -45,6 +45,9 @@ private:
     juce::Label status_;
     juce::Viewport viewport_;
     std::unique_ptr<RigView> view_;
+    // The window's one: a view with several panels must not show each tip
+    // once per panel.
+    juce::TooltipWindow tooltipWindow_{this};
 
     // The audio settings window, while open. JUCE's modal manager deletes it
     // when closed; still open at quit, it would go only at shutdown, after

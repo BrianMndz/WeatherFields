@@ -31,6 +31,9 @@ public:
     // down to its smallest scale.
     int HeightFor(int width, int visibleHeight) const override;
 
+    // The width of the panel at its smallest scale.
+    int MinimumWidth() const noexcept;
+
     void paint(juce::Graphics& g) final;
     void resized() final;
 
