@@ -398,6 +398,8 @@ public:
   headroom.
 - **Analog/digital I/O stays enabled.** It is planned for PO-33 sync pulses and
   peripherals.
+- **`interleave = 0` covers the analog buffers too:** read them with
+  `analogReadNI()`; `analogRead()` would return another channel's samples.
 - **Audio inputs.** There is only one stereo input. The PO-33 and Seed3 both
   feeding Bela means a small mixer, or using Bela's analog inputs (DC-coupled;
   check their level and rate). Decide before milestone 3.

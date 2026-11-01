@@ -7,9 +7,10 @@ set(WF_BELA_HOST_SOURCES
     Host/GuiLink.cpp
     Host/I2cPanel.cpp
     Host/OledLink.cpp
+    Host/PanelLink.cpp
 )
 # What the host itself links, added to every app's targets.
-set(WF_BELA_HOST_TARGETS wf::oled)
+set(WF_BELA_HOST_TARGETS wf::oled wf::controls)
 
 wf_add_manifest(bela_clouds TARGET wf::clouds wf::clouds_ui ${WF_BELA_HOST_TARGETS}
     SOURCES ${WF_BELA_HOST_SOURCES} Apps/Clouds/CloudsApp.cpp

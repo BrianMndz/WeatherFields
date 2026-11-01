@@ -11,6 +11,7 @@
 #include "BelaHost.h"
 #include "GuiLink.h"
 #include "OledLink.h"
+#include "PanelLink.h"
 #include "wf/Dsp.h"
 #include "wf/Engine.h"
 
@@ -55,6 +56,7 @@ wf::bela::GuiInput guiInput;
 wf::bela::GuiLink* guiLink = nullptr;
 // Its thread runs from setup() to cleanup(), which joins it.
 wf::bela::OledLink oledLink;
+wf::bela::PanelLink panelLink;
 
 // render() only.
 wf::PeakFollower inputMeter;
@@ -119,6 +121,8 @@ bool setup(BelaContext* context, void*) {
         return false;
     }
 
+    if (!panelLink.Start(wf::bela::AppPanel(), context)) return false;
+
     for (std::size_t slot = 0; slot < rig->SlotCount(); ++slot) {
         const wf::ParamTable& table = rig->Slot(slot)->Params();
         for (std::size_t i = 0; i < table.count; ++i) {
@@ -147,7 +151,9 @@ bool setup(BelaContext* context, void*) {
 // Engine::Process() allows.
 void render(BelaContext* context, void*) {
     guiInput.Drain(*rig, kMaxGuiEventsPerCallback);
+    panelLink.Update(context, *rig, published);
     Publish();
+    if (panelLink.Synced()) published.synced.store(true, std::memory_order_release);
 
     const unsigned int frames = context->audioFrames;
     const float* inLeft = context->audioIn;
