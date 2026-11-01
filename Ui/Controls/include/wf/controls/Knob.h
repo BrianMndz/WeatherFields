@@ -9,7 +9,7 @@ namespace controls {
 // 1 that stays quiet at rest. Every published change opens an OLED popup and
 // reaches the browser page, so unlike the firmware, which feeds its ADC
 // straight to the DSP, a knob changes nothing until it is moved past
-// kTouch, and stops changing once it settles.
+// kTouch or reaches an end, and stops changing once it settles.
 //
 // The numbers come from the panel probe (2026-10-24, PROJECT_GUIDE): the pots
 // sit across the 3.3 V rail and read 0.8275-0.8285 at the top against the
@@ -21,7 +21,7 @@ public:
     static constexpr float kTouch = 0.01f;     // 8 times the worst noise
     static constexpr float kRest = 0.0025f;    // 2 times the worst noise
     static constexpr float kRestMs = 250.0f;   // still for this long: at rest
-    static constexpr float kEnd = 0.001f;      // this near an end: at that end
+    static constexpr float kEnd = 0.001f;      // filtered this near an end: at that end
 
     // Not real-time. `firmwareCoefficient`: the one-pole coefficient of the
     // module's CvScaler, which runs once a millisecond, kept as a time
@@ -46,7 +46,15 @@ public:
         filtered_ += coefficient_ * (input - filtered_);
 
         if (!moving_) {
-            if (std::fabs(filtered_ - value_) <= kTouch) return false;
+            if (std::fabs(filtered_ - value_) <= kTouch) {
+                // The filter only approaches its input, so a knob turned
+                // fully would otherwise settle just short of the end; and a
+                // turn from nearby, inside kTouch, would never wake it.
+                const float end = AtEnd(filtered_);
+                if ((end != 0.0f && end != 1.0f) || end == value_) return false;
+                value_ = end;
+                return true;
+            }
             moving_ = true;
             restFrom_ = filtered_;
             restMs_ = 0.0f;
@@ -56,14 +64,8 @@ public:
         } else {
             restMs_ += callbackMs_;
             if (restMs_ >= kRestMs) {
-                // The filter only approaches its input, so a knob turned
-                // fully would otherwise settle just short of the end.
                 moving_ = false;
-                const float settled = AtEnd(input);
-                if (settled != 0.0f && settled != 1.0f) return false;
-                const bool changed = settled != value_;
-                value_ = settled;
-                return changed;
+                return false;
             }
         }
         value_ = filtered_;

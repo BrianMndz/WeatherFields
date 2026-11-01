@@ -391,6 +391,58 @@ void CheckFocus() {
     }
 }
 
+// The BLEND parameter the view presents has its label reversed, within its 16
+// x 8 cell and nowhere else, and for no longer than the focus lasts.
+void CheckBlendSelection() {
+    const Engine::Param params[] = {Engine::kDryWet, Engine::kStereoSpread, Engine::kFeedback, Engine::kReverb};
+    const auto draw = [](wf::oled::Display& display, wf::oled::RigReadout::Focus focus) {
+        FakeReadout rig;
+        rig.focus = focus;
+        wf::clouds::OledScreen screen(0);
+        screen.Draw(display.U8g2(), 0, rig);
+        screen.Draw(display.U8g2(), 100, rig);
+    };
+    wf::oled::Display plain;
+    draw(plain, {false, 0, 0});
+
+    for (int i = 0; i < 4; ++i) {
+        const int x = (i % 2) * 65;
+        const int y = 47 + (i / 2) * 9;
+        wf::oled::Display selected;
+        draw(selected, {true, 0, params[i]});
+        bool outsideSame = true;
+        int inverted = 0;
+        for (int row = 0; row < wf::oled::kHeight; ++row) {
+            for (int column = 0; column < wf::oled::kWidth; ++column) {
+                const bool cell = column >= x && column < x + 16 && row >= y && row < y + 8;
+                const bool same = selected.Pixel(column, row) == plain.Pixel(column, row);
+                if (cell) inverted += same ? 0 : 1;
+                else outsideSame = outsideSame && same;
+            }
+        }
+        Expect(inverted == 16 * 8, "the selected label is its cell reversed");
+        Expect(outsideSame, "and nothing else changes");
+    }
+
+    wf::oled::Display other;
+    draw(other, {true, 1, Engine::kFeedback});
+    Expect(Same(other, plain), "a focus on another slot reverses nothing");
+    draw(other, {true, 0, Engine::kPosition});
+    Expect(Same(other, plain), "nor does one on a knob without a label");
+    draw(other, {false, 0, Engine::kFeedback});
+    Expect(Same(other, plain), "nor does an inactive one");
+
+    FakeReadout rig;
+    wf::clouds::OledScreen screen(0);
+    wf::oled::Display ending;
+    rig.focus = {true, 0, Engine::kReverb};
+    screen.Draw(ending.U8g2(), 0, rig);
+    Expect(!Same(ending, plain), "while it lasts");
+    rig.focus = {false, 0, 0};
+    screen.Draw(ending.U8g2(), 100, rig);
+    Expect(Same(ending, plain), "and not after");
+}
+
 }  // namespace
 
 int main() {
@@ -404,6 +456,7 @@ int main() {
     CheckHeaderPopup();
     CheckChoicePopup();
     CheckFocus();
+    CheckBlendSelection();
 
     if (failures != 0) {
         std::cerr << failures << " check(s) failed\n";

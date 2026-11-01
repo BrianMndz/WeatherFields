@@ -38,6 +38,7 @@ constexpr int kBlendColumnPitch = 65;
 constexpr int kBlendBarX = 17;
 constexpr int kBlendBarWidth = 46;
 constexpr int kBlendBarHeight = 8;
+constexpr int kBlendLabelWidth = 16;
 
 // The cloud.
 constexpr int kMaxGrains = 28;
@@ -343,7 +344,13 @@ void OledScreen::Draw(u8g2_t* u8g2, std::uint32_t ms, const oled::RigReadout& ri
     for (int i = 0; i < 4; ++i) {
         const int x = (i % 2) * kBlendColumnPitch;
         const int y = kBlendY + (i / 2) * kBlendRowPitch;
+        // What the view presents for selection: the parameter BLEND sets.
+        if (focus.active && focus.slot == slot_ && focus.id == blend[i]) {
+            u8g2_DrawBox(u8g2, Px(x), Px(y), kBlendLabelWidth, kBlendBarHeight);
+            u8g2_SetDrawColor(u8g2, 0);
+        }
         u8g2_DrawStr(u8g2, Px(x + 1), Px(y + 7), names[i]);
+        u8g2_SetDrawColor(u8g2, 1);
         DrawBar(u8g2, x + kBlendBarX, y, value(blend[i]));
     }
 }

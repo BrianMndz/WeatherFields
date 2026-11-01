@@ -278,6 +278,78 @@ void CheckBlendSelection() {
     Expect(bench.Value(Engine::kDryWet) == 0.0f, "and 0");
 }
 
+// The module keeps dry/wet unstretched, so its ends have dead zones: below
+// 0.025 / 1.05 fully dry, above that from the top fully wet. They survive a
+// sweep to the ends and back, which a value read back from the clamped engine
+// would lose.
+void CheckDryWetDeadZones() {
+    Bench bench;
+    wf::controls::Knob reference;
+    reference.Configure(0.05f, kCallbackMs);
+    bench.knobs[FrontPanel::kBlendKnob] = 0.5f * kTop;
+    bench.Run(kCallbackMs);
+    reference.Update(0.5f * kTop);
+    FirmwareBlend firmware{reference.Value(), reference.Value(), reference.Value()};
+    const auto stretched = [](float blend) {
+        const float wet = blend * 1.05f - 0.025f;
+        return wet > 0.0f ? (wet < 1.0f ? wet : 1.0f) : 0.0f;
+    };
+
+    const float path[] = {1.0f, 0.985f, 1.0f, 0.0f, 0.015f, 0.0f, 0.5f};
+    float unit = 0.5f;
+    for (float target : path) {
+        const int steps = 800;
+        const float from = unit;
+        for (int i = 1; i <= steps; ++i) {
+            unit = from + (target - from) * static_cast<float>(i) / static_cast<float>(steps);
+            bench.knobs[FrontPanel::kBlendKnob] = unit * kTop;
+            bench.Run(kCallbackMs);
+            reference.Update(unit * kTop);
+            firmware.Update(reference.Value());
+        }
+        for (int i = 0; i < 1400; ++i) {  // about a second, to settle
+            bench.Run(kCallbackMs);
+            reference.Update(unit * kTop);
+            firmware.Update(reference.Value());
+        }
+        Expect(Near(bench.Value(Engine::kDryWet), stretched(firmware.value), 1e-4f), "dry/wet follows the module's");
+    }
+
+    Bench down;
+    down.Run(100.0f);
+    down.Turn(FrontPanel::kBlendKnob, 1.0f);
+    down.Turn(FrontPanel::kBlendKnob, 0.0f);
+    Expect(down.Value(Engine::kDryWet) == 0.0f, "fully down, fully dry");
+    down.Turn(FrontPanel::kBlendKnob, 0.015f);
+    Expect(down.Value(Engine::kDryWet) == 0.0f, "1.5% is still fully dry");
+    down.Turn(FrontPanel::kBlendKnob, 1.0f);
+    Expect(down.Value(Engine::kDryWet) == 1.0f, "fully up, fully wet");
+    down.Turn(FrontPanel::kBlendKnob, 0.985f);
+    Expect(down.Value(Engine::kDryWet) == 1.0f, "98.5% is still fully wet");
+
+    // A browser edit still counts: from it, not from the dead zone.
+    down.Set(Engine::kDryWet, 0.4f);
+    down.Turn(FrontPanel::kBlendKnob, 0.9f);
+    const float wet = down.Value(Engine::kDryWet);
+    Expect(wet < 0.4f && wet > 0.25f, "the knob catches up from a browser edit");
+
+    // From exactly there: the browser value, unstretched, into the module's formula.
+    Bench edited;
+    edited.Run(100.0f);
+    edited.Set(Engine::kDryWet, 0.25f);
+    wf::controls::Knob knob;
+    knob.Configure(0.05f, kCallbackMs);
+    knob.Update(0.5f * kTop);
+    FirmwareBlend module{(0.25f + 0.025f) / 1.05f, knob.Value(), knob.Value()};
+    for (int i = 0; i < 1400; ++i) {
+        edited.knobs[FrontPanel::kBlendKnob] = 0.7f * kTop;
+        edited.Run(kCallbackMs);
+        knob.Update(0.7f * kTop);
+        module.Update(knob.Value());
+    }
+    Expect(Near(edited.Value(Engine::kDryWet), stretched(module.value), 1e-4f), "from the browser value, unstretched");
+}
+
 void CheckFreeze() {
     Bench bench;
     bench.Run(100.0f);
@@ -480,6 +552,7 @@ int main() {
     CheckQuietKnobsAndLastMoved();
     CheckBlendCatchUp();
     CheckBlendSelection();
+    CheckDryWetDeadZones();
     CheckFreeze();
     CheckQuality();
     CheckPlaybackMode();

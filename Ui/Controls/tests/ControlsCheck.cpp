@@ -155,6 +155,34 @@ void CheckReachesEnds() {
     Expect(knob.Value() > 0.49f && knob.Value() < 0.51f, "and leaves the end again");
 }
 
+// Inside the touch distance of an end, the turn wakes nothing, yet must land.
+void CheckEndsFromNearby() {
+    Knob low = Started(0.005f * kInputTop);
+    Expect(std::fabs(low.Value() - 0.005f) < 1e-6f, "starts at 0.5%");
+    int changes = Hold(low, 0.0f, 2000.0f);
+    Expect(low.Value() == 0.0f, "from 0.5%, turned fully down it reaches 0");
+    Expect(changes == 1, "in one change");
+    Expect(Hold(low, 0.0f, 2000.0f) == 0, "and stays quiet");
+
+    Knob high = Started(0.995f * kInputTop);
+    changes = Hold(high, 0.8285f, 2000.0f);
+    Expect(high.Value() == 1.0f, "from 99.5%, turned fully up it reaches 1");
+    Expect(changes == 1, "in one change");
+    Expect(Hold(high, 0.8285f, 2000.0f) == 0, "and stays quiet");
+
+    // Resting that near an end is not at it, whatever the noise.
+    for (float unit : {0.005f, 0.995f}) {
+        Knob knob = Started(unit * kInputTop);
+        const float value = knob.Value();
+        Noise noise;
+        int noisy = 0;
+        for (int i = 0; i < CallbacksFor(60000.0f); ++i) {
+            noisy += knob.Update(unit * kInputTop + noise()) ? 1 : 0;
+        }
+        Expect(noisy == 0 && knob.Value() == value, "a knob resting near an end stays where it is");
+    }
+}
+
 int Tap(Button& button, int callbacks) {
     int presses = 0;
     for (int i = 0; i < callbacks; ++i) {
@@ -229,6 +257,7 @@ int main() {
     CheckFilterTimeConstant();
     CheckSettles();
     CheckReachesEnds();
+    CheckEndsFromNearby();
     CheckButton();
     if (failures != 0) return 1;
     std::cout << "controls check passed\n";

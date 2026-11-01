@@ -34,7 +34,8 @@ namespace clouds {
 // (RigReadout::ViewFocus(): the panel's quality or mode display after B is
 // held), changed or not. A newer change replaces the popup. The BLEND
 // values, freeze, TRIG and its gate open none: the screen already shows
-// them.
+// them. The BLEND value the view presents for selection has its label
+// reversed for as long as it does.
 class OledScreen final : public oled::Screen {
 public:
     // Parameters watched for changes: every wf::clouds::Engine ID.

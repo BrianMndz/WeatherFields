@@ -25,8 +25,8 @@ namespace clouds {
 //            converges as the knob nears an end. Turning it shows all four
 //            values
 //
-// The other knobs are absolute. Each parameter's value is read from the rig,
-// so the browser panel can change it too: the last control moved wins.
+// The other knobs are absolute. The browser panel can change every value too:
+// the last control moved wins, and BLEND catches up from the browser's value.
 //
 // Deliberate deviations from the firmware: knobs are quiet at rest
 // (controls::Knob); the first reading sets the knobs' parameters, with BLEND
@@ -37,7 +37,8 @@ namespace clouds {
 // counts as long by 1 ms).
 //
 // Feedback is the OLED: CurrentFocus() gives what the module's LEDs would be
-// presenting for selection. There are no LEDs yet.
+// presenting for selection, which the screen shows (OledScreen). There are no
+// LEDs yet.
 class FrontPanel final : public controls::Panel {
 public:
     enum KnobIndex {
@@ -87,7 +88,7 @@ public:
 private:
     void Send(Rig& rig, ParamId id, float value) const noexcept;
     float ReadBlend(const Rig& rig, int parameter) const noexcept;
-    void SendBlend(Rig& rig, int parameter, float blend) const noexcept;
+    void SendBlend(Rig& rig, int parameter, float blend) noexcept;
     void UpdateBlend(float knob, Rig& rig) noexcept;
     void UpdateFreeze(Rig& rig) noexcept;
     void UpdateSelect(Rig& rig) noexcept;
@@ -108,6 +109,9 @@ private:
     bool veryLongPressArmed_ = false;
 
     // CvScaler::UpdateBlendParameters().
+    static constexpr int kBlendCount = 4;
+    float blend_[kBlendCount] = {};      // the module's values, before dry/wet's stretch and clamp
+    float blendSent_[kBlendCount] = {};  // what the engine got for them; negative for nothing yet
     int blendParameter_ = 0;
     bool blendStarted_ = false;
     float previousBlendKnob_ = 0.0f;

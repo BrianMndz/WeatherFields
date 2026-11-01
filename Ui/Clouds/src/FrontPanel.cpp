@@ -30,7 +30,6 @@ constexpr float kDryWetOffset = 0.025f;
 
 // In the module's BlendParameter order.
 const Engine::Param kBlendParams[] = {Engine::kDryWet, Engine::kStereoSpread, Engine::kFeedback, Engine::kReverb};
-constexpr int kBlendCount = 4;
 
 constexpr int kChoiceCount = 4;  // the qualities, and the playback modes
 
@@ -56,6 +55,7 @@ void FrontPanel::Prepare(float callbackMs) noexcept {
     display_ = Display::Meter;
     longPressArmed_ = false;
     veryLongPressArmed_ = false;
+    for (float& sent : blendSent_) sent = -1.0f;
     blendParameter_ = 0;
     blendStarted_ = false;
     blendKnobTouched_ = false;
@@ -101,21 +101,24 @@ void FrontPanel::Send(Rig& rig, ParamId id, float value) const noexcept {
     rig.Handle(ControlEvent{ControlEvent::Type::Param, slot_, id, value});
 }
 
-// The module's blend_[] is the engine's value, but for dry/wet's stretch.
+// The module's blend_[], kept here since the engine's dry/wet is stretched and
+// clamped, which would lose the dead zones at its ends; unless the engine holds
+// something else than was sent, which only the browser panel can have done.
 float FrontPanel::ReadBlend(const Rig& rig, int parameter) const noexcept {
     const float value = rig.Slot(slot_)->ParamValue(kBlendParams[parameter]);
+    if (value == blendSent_[parameter]) return blend_[parameter];
     return kBlendParams[parameter] == Engine::kDryWet ? (value + kDryWetOffset) / kDryWetScale : value;
 }
 
-void FrontPanel::SendBlend(Rig& rig, int parameter, float blend) const noexcept {
+void FrontPanel::SendBlend(Rig& rig, int parameter, float blend) noexcept {
     const float value = kBlendParams[parameter] == Engine::kDryWet ? blend * kDryWetScale - kDryWetOffset : blend;
-    Send(rig, kBlendParams[parameter], Constrain(value));
+    blend_[parameter] = blend;
+    blendSent_[parameter] = Constrain(value);
+    Send(rig, kBlendParams[parameter], blendSent_[parameter]);
 }
 
-// CvScaler::UpdateBlendParameters() without the CV. The parameter comes from
-// the engine each time rather than from a copy here, so the knob catches up
-// from wherever the browser panel left it. `knob` holds still at rest, so
-// noise cannot walk the parameter, which on the module it does.
+// CvScaler::UpdateBlendParameters() without the CV. `knob` holds still at rest,
+// so noise cannot walk the parameter, which on the module it does.
 void FrontPanel::UpdateBlend(float knob, Rig& rig) noexcept {
     if (!blendStarted_) {
         blendStarted_ = true;
